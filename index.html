@@ -76,17 +76,8 @@
 
     <div id="keyBox">
         <h2>Initial Setup (one-time)</h2>
-        <input
-            type="text"
-            id="vrpId"
-            placeholder="Your vRP ID (e.g., 30197)"
-        />
-        <input
-            type="password"
-            id="apiKey"
-            placeholder="Your private Tycoon API key"
-            autofocus
-        />
+        <input type="text" id="vrpId" placeholder="Your vRP ID (e.g., 30197)" />
+        <input type="password" id="apiKey" placeholder="Your private Tycoon API key" autofocus />
         <button onclick="trySaveAndRun()">Save & Start</button>
         <div id="status"></div>
         <div class="hint">Press ESC to pin/minimize • Enter to save</div>
@@ -107,15 +98,17 @@
         // ================================================================
         // CONFIG & GLOBALS
         // ================================================================
-        const API_URL       = 'https://tycoon-2epova.users.cfx.re/status/airline.json';
-        const KEY_STORAGE   = 'tycoonAutoApiKey';
-        const VRP_STORAGE   = 'tycoonVrpId';
-        const POLL_INTERVAL = 15000; // 15 seconds backup poll
-        const NOTIF_INTERVAL = 1500; // 1.5 seconds notification check
+        const API_URL        = 'https://tycoon-2epova.users.cfx.re/status/airline.json';
+        const KEY_STORAGE    = 'tycoonAutoApiKey';
+        const VRP_STORAGE    = 'tycoonVrpId';
+        const POLL_INTERVAL  = 15000; // 15s backup poll
+        const NOTIF_INTERVAL = 2000;  // 2s notification check (less aggressive)
 
-        let pollTimer = null;
+        let pollTimer  = null;
         let notifTimer = null;
         let lastNotification = "";
+        let lastSetX = null;
+        let lastSetY = null; // ← New: prevent repeat sets to same coords
 
         const keyBox   = document.getElementById('keyBox');
         const statusEl = document.getElementById('status');
@@ -126,32 +119,36 @@
         // HELPERS
         // ================================================================
         function setWaypoint(x, y) {
-            const waypointData = {
-                type: "setWaypoint",
-                x: parseFloat(x),
-                y: parseFloat(y)
-            };
+            const xNum = parseFloat(x);
+            const yNum = parseFloat(y);
+
+            // Only set if coords actually changed
+            if (lastSetX === xNum && lastSetY === yNum) {
+                console.log('Same waypoint coords – skipping redundant set');
+                return false;
+            }
+
+            const waypointData = { type: "setWaypoint", x: xNum, y: yNum };
+
             window.postMessage(waypointData, "*");
             if (window.parent !== window) window.parent.postMessage(waypointData, "*");
-            console.log('Waypoint sent:', waypointData);
+
+            lastSetX = xNum;
+            lastSetY = yNum;
+
+            console.log('Waypoint set (new coords):', waypointData);
+            return true;
         }
 
         // ================================================================
-        // Fetch airline data
+        // Fetch & process airline data
         // ================================================================
         async function fetchAirlineData(key) {
-            const response = await fetch(API_URL, {
-                headers: { 'X-Tycoon-Key': key }
-            });
-            if (!response.ok) {
-                throw new Error(response.status === 401 ? 'invalid_key' : 'api_error');
-            }
+            const response = await fetch(API_URL, { headers: { 'X-Tycoon-Key': key } });
+            if (!response.ok) throw new Error(response.status === 401 ? 'invalid_key' : 'api_error');
             return await response.json();
         }
 
-        // ================================================================
-        // Process data & find your route
-        // ================================================================
         async function processAirlineData(data, vrpId) {
             console.log('Full API response:', data);
             let yourRoute = null;
@@ -168,7 +165,7 @@
         }
 
         // ================================================================
-        // Update waypoint logic
+        // Core update logic
         // ================================================================
         async function updateWaypoint(key, vrpId, isInitial = false) {
             try {
@@ -182,14 +179,16 @@
                 }
 
                 const dest = yourRoute[1];
-                if (isInitial) {
-                    setWaypoint(dest.x, dest.y);
-                    statusEl.textContent = `Waypoint set to ${dest.name} (${dest.airport}) ✓`;
+                const wasSet = setWaypoint(dest.x, dest.y); // ← only sets if changed
+
+                if (wasSet) {
+                    const msg = isInitial ? `Waypoint set to ${dest.name} (${dest.airport}) ✓` 
+                                           : `Waypoint updated to ${dest.name} (${dest.airport}) ✓`;
+                    statusEl.textContent = msg;
                     statusEl.className = 'success';
-                } else {
-                    setWaypoint(dest.x, dest.y);
-                    statusEl.textContent = `Waypoint updated to ${dest.name} (${dest.airport}) ✓`;
-                    statusEl.className = 'success';
+
+                    // Optional: auto-clear status after 5 seconds
+                    // setTimeout(() => { if (statusEl.textContent === msg) statusEl.textContent = ''; }, 5000);
                 }
 
                 keyBox.style.display = 'none';
@@ -200,19 +199,17 @@
         }
 
         // ================================================================
-        // Notification watcher (detects "Boarding complete" or "Push back approved")
+        // Notification watcher
         // ================================================================
         function watchNotifications(key, vrpId) {
             const currentNotif = window.notification || "";
             if (currentNotif !== lastNotification) {
                 console.log('New notification detected:', currentNotif);
-                if (currentNotif.includes("Boarding complete") || 
-                    currentNotif.includes("Push back approved")) {
-                    
+                if (currentNotif.includes("Boarding complete") || currentNotif.includes("Push back approved")) {
                     console.log('Boarding/Pushback complete detected!');
                     statusEl.textContent = 'Boarding complete detected → updating waypoint...';
                     statusEl.className = 'success';
-                    updateWaypoint(key, vrpId, false); // refresh & set next waypoint
+                    updateWaypoint(key, vrpId, false);
                 }
                 lastNotification = currentNotif;
             }
@@ -249,7 +246,7 @@
                 const yourRoute = await processAirlineData(data, vrpId);
 
                 if (yourRoute) {
-                    await updateWaypoint(key, vrpId, true); // initial set
+                    await updateWaypoint(key, vrpId, true);
                     localStorage.setItem(KEY_STORAGE, key);
                     localStorage.setItem(VRP_STORAGE, vrpId);
                     startPolling(key, vrpId);
