@@ -2,191 +2,107 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Tycoon Airline Status + Auto Waypoint</title>
+    <title>Auto Airline WP</title>
     <style>
-        body {
-            background-color: #1a1a1a;
-            color: #ffffff;
-            font-family: Arial, Helvetica, sans-serif;
-            padding: 20px;
-            margin: 0;
-        }
-        h1 { text-align: center; margin-bottom: 10px; }
-        .container { max-width: 900px; margin: 0 auto; }
-        .input-area {
-            margin-bottom: 20px;
-            text-align: center;
-        }
-        input[type="password"] {
-            padding: 10px;
-            width: 320px;
-            font-size: 16px;
-            border: 1px solid #444;
-            border-radius: 4px;
-            background: #333;
-            color: #fff;
-        }
-        button {
-            padding: 10px 20px;
-            font-size: 16px;
-            margin: 5px;
-            background: #007bff;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        button:hover { background: #0056b3; }
-        .waypoint-btn {
-            background: #28a745;
-        }
-        .waypoint-btn:hover { background: #218838; }
-        .status { text-align: center; margin: 15px 0; font-weight: bold; color: #ccc; }
-        .route-list { display: grid; gap: 15px; }
-        .route-card {
-            background: #222;
-            border: 1px solid #444;
-            border-radius: 8px;
-            padding: 15px;
-        }
-        .route-card h3 {
-            margin: 0 0 10px;
-            color: #4da6ff;
-        }
-        .route-detail {
-            margin: 5px 0;
-            font-size: 15px;
-        }
-        .status-enroute { color: #ffcc00; }
-        .status-boarding { color: #00cc66; }
-        .empty { text-align: center; color: #888; font-style: italic; }
-        .auto-note { font-size: 14px; color: #aaa; text-align: center; margin-top: 5px; }
+        body{background:transparent;color:#fff;font-family:Arial,sans-serif;margin:0;padding:0;overflow:hidden}
+        #keyBox{position:absolute;top:40%;left:50%;transform:translate(-50%,-50%);
+                background:rgba(0,0,0,0.85);padding:25px 35px;border-radius:12px;
+                border:1px solid #555;box-shadow:0 0 25px rgba(0,0,0,0.9);
+                text-align:center;min-width:400px;display:none;z-index:9999}
+        h2{margin:0 0 18px;font-size:21px;color:#4da6ff}
+        input[type=password]{padding:12px;width:280px;font-size:17px;border:1px solid #666;
+                border-radius:6px;background:#111;color:#fff}
+        button{padding:12px 24px;font-size:17px;margin-left:12px;background:#007bff;
+               color:white;border:none;border-radius:6px;cursor:pointer}
+        button:hover{background:#0056b3}
+        #status{margin-top:15px;font-size:15px;min-height:22px}
+        .error{color:#ff5555}.success{color:#55ff99}
+        .hint{margin-top:20px;font-size:13px;color:#aaa}
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Active Airline Routes</h1>
-        <p class="auto-note">Waypoint automatically set to the first active destination! (Always loads latest version)</p>
-        
-        <div class="input-area">
-            <input type="password" id="apiKey" placeholder="Enter your private API key" />
-            <button onclick="loadData()">Load / Refresh</button>
-        </div>
-        
-        <div class="status" id="status">Enter key and click Load</div>
-        
-        <div class="route-list" id="routeList"></div>
-    </div>
 
-    <!-- AUTO CACHE-BUST: Forces fresh load with timestamp if ?v= is missing -->
-    <script>
-    (function() {
-      const url = new URL(window.location.href);
-      if (!url.searchParams.has("v")) {
-        url.searchParams.set("v", Date.now());
-        window.location.replace(url.toString());
-      }
-    })();
-    </script>
+<div id="keyBox">
+    <h2>Enter API Key (one-time)</h2>
+    <input type="password" id="apiKey" placeholder="Your private Tycoon API key" autofocus />
+    <button onclick="trySaveAndRun()">Save & Start</button>
+    <div id="status"></div>
+    <div class="hint">Press ESC to pin/minimize • Enter to save</div>
+</div>
 
-    <script>
-        const API_URL = 'https://tycoon-2epova.users.cfx.re/status/airline.json';
-        const statusEl = document.getElementById('status');
-        const routeList = document.getElementById('routeList');
-        const keyInput = document.getElementById('apiKey');
+<!-- AUTO CACHE-BUST -->
+<script>
+(function(){const u=new URL(location.href);if(!u.searchParams.has("v")){u.searchParams.set("v",Date.now());location.replace(u)}})();
+</script>
 
-        // Load saved key
-        const savedKey = localStorage.getItem('tycoonApiKey');
-        if (savedKey) {
-            keyInput.value = savedKey;
-            statusEl.textContent = 'Key loaded. Click Load to refresh.';
+<script>
+// ESC → pin the window
+window.addEventListener('keydown', e => {
+    if (e.key === "Escape") {
+        window.parent.postMessage({type:"pin"},"*");
+        e.preventDefault();
+    }
+});
+
+const API_URL = 'https://tycoon-2epova.users.cfx.re/status/airline.json';
+const KEY_STORAGE = 'tycoonAutoApiKey';
+const keyBox = document.getElementById('keyBox');
+const statusEl = document.getElementById('status');
+const keyInput = document.getElementById('apiKey');
+
+function setWaypoint(x,y){
+    window.parent.postMessage({type:"setWaypoint",x:parseFloat(x),y:parseFloat(y)},"*");
+}
+
+async function fetchAndSetWaypoint(key){
+    try{
+        const r = await fetch(API_URL,{headers:{'X-Tycoon-Key':key}});
+        if(!r.ok) throw new Error(r.status===401?'invalid_key':'api_error');
+        const data = await r.json();
+        const first = Object.values(data)[0];
+        if(first){
+            const dest = first[1];
+            setWaypoint(dest.x,dest.y);
+            statusEl.textContent='Waypoint set';statusEl.className='success';
+        }else{
+            statusEl.textContent='No active routes';statusEl.className='';
         }
+        keyBox.style.display='none';
+        return true;
+    }catch(err){
+        statusEl.className='error';
+        statusEl.textContent = err.message==='invalid_key'?'Invalid API key':'API error / no charges';
+        return false;
+    }
+}
 
-        function setWaypoint(x, y, label) {
-            const command = {
-                type: "setWaypoint",
-                x: parseFloat(x),
-                y: parseFloat(y)
-            };
-            window.postMessage(command, "*");
-            statusEl.textContent += ` | Auto waypoint: ${label}`;
+async function trySaveAndRun(){
+    const key = keyInput.value.trim();
+    if(!key){statusEl.textContent='Enter key';statusEl.className='error';return}
+    statusEl.textContent='Validating...';statusEl.className='';
+    if(await fetchAndSetWaypoint(key)) localStorage.setItem(KEY_STORAGE,key);
+}
+
+async function autoRun(){
+    const saved = localStorage.getItem(KEY_STORAGE);
+    if(saved){
+        if(!await fetchAndSetWaypoint(saved)){
+            keyBox.style.display='block';
+            statusEl.textContent='Saved key invalid – re-enter';
+            statusEl.className='error';
         }
+    }else keyBox.style.display='block';
+}
 
-        async function loadData() {
-            const key = keyInput.value.trim();
-            if (!key) {
-                statusEl.textContent = 'Error: Enter your API key';
-                return;
-            }
-            localStorage.setItem('tycoonApiKey', key);
+// Enter key in the input → save & run
+keyInput.addEventListener('keydown', e => {
+    if(e.key === 'Enter'){
+        e.preventDefault();
+        trySaveAndRun();
+    }
+});
 
-            statusEl.textContent = 'Fetching active routes...';
-            routeList.innerHTML = '';
-
-            try {
-                const res = await fetch(API_URL, {
-                    headers: { 'X-Tycoon-Key': key }
-                });
-
-                if (!res.ok) {
-                    if (res.status === 401) throw new Error('Invalid API key');
-                    if (res.status === 402) throw new Error('No charges left – refill in-game');
-                    throw new Error(`Error ${res.status}`);
-                }
-
-                const data = await res.json();
-                displayRoutes(data);
-            } catch (err) {
-                statusEl.textContent = `Error: ${err.message}`;
-                routeList.innerHTML = '<p class="empty">Failed to load data</p>';
-            }
-        }
-
-        function displayRoutes(data) {
-            if (Object.keys(data).length === 0) {
-                statusEl.textContent = 'Success – No active airline routes right now';
-                routeList.innerHTML = '<p class="empty">No planes in flight or boarding</p>';
-                return;
-            }
-
-            statusEl.textContent = `Success – ${Object.keys(data).length} active route(s) • ${new Date().toLocaleTimeString()}`;
-            
-            let firstRouteSet = false;
-
-            for (const [routeNum, info] of Object.entries(data)) {
-                const [model, dest, isBoarding, vrpId] = info;
-                const { x, y, z, h, airport, name } = dest;
-                const label = `${name} (${airport})`;
-
-                const card = document.createElement('div');
-                card.className = 'route-card';
-
-                card.innerHTML = `
-                    <h3>Route #${routeNum}${!firstRouteSet ? ' ← <strong>AUTO WAYPOINT</strong>' : ''}</h3>
-                    <div class="route-detail"><strong>Plane:</strong> ${model}</div>
-                    <div class="route-detail"><strong>Destination:</strong> ${name} (${airport})</div>
-                    <div class="route-detail"><strong>Coords:</strong> X: ${x.toFixed(1)}, Y: ${y.toFixed(1)}, Z: ${z.toFixed(1)} • Heading: ${h.toFixed(1)}°</div>
-                    <div class="route-detail"><strong>Status:</strong> <span class="${isBoarding ? 'status-boarding' : 'status-enroute'}">
-                        ${isBoarding ? 'Boarding / Arrived' : 'En route'}
-                    </span></div>
-                    <div class="route-detail"><strong>Player vRP ID:</strong> ${vrpId}</div>
-                    
-                    <button class="waypoint-btn" onclick="setWaypoint(${x}, ${y}, '${label.replace(/'/g, "\\'")}')">
-                        Set GPS Waypoint
-                    </button>
-                `;
-                routeList.appendChild(card);
-
-                // Auto-set waypoint to the FIRST route only
-                if (!firstRouteSet) {
-                    setWaypoint(x, y, label);
-                    firstRouteSet = true;
-                }
-            }
-        }
-
-        // Enter key to load
-        keyInput.addEventListener('keypress', e => { if (e.key === 'Enter') loadData(); });
-    </script>
+autoRun();
+</script>
 </body>
 </html>
