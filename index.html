@@ -4,7 +4,6 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Auto Airline WP</title>
-
     <style>
         body {
             background: transparent;
@@ -14,7 +13,6 @@
             padding: 0;
             overflow: hidden;
         }
-
         #keyBox {
             position: absolute;
             top: 40%;
@@ -30,13 +28,11 @@
             display: none;
             z-index: 9999;
         }
-
         h2 {
             margin: 0 0 18px;
             font-size: 21px;
             color: #4da6ff;
         }
-
         input[type="password"],
         input[type="text"] {
             padding: 12px;
@@ -46,8 +42,9 @@
             border-radius: 6px;
             background: #111;
             color: #fff;
+            display: block;
+            margin: 0 auto 10px;
         }
-
         button {
             padding: 12px 24px;
             font-size: 17px;
@@ -58,20 +55,16 @@
             border-radius: 6px;
             cursor: pointer;
         }
-
         button:hover {
             background: #0056b3;
         }
-
         #status {
             margin-top: 15px;
             font-size: 15px;
             min-height: 22px;
         }
-
         .error { color: #ff5555; }
         .success { color: #55ff99; }
-
         .hint {
             margin-top: 20px;
             font-size: 13px;
@@ -83,24 +76,23 @@
 
     <div id="keyBox">
         <h2>Initial Setup (one-time)</h2>
-        <input 
-            type="text" 
-            id="vrpId" 
-            placeholder="Your vRP ID (e.g., 30197)" 
-            style="margin-bottom: 10px; display: block; margin-left: auto; margin-right: auto;"
+        <input
+            type="text"
+            id="vrpId"
+            placeholder="Your vRP ID (e.g., 30197)"
         />
-        <input 
-            type="password" 
-            id="apiKey" 
-            placeholder="Your private Tycoon API key" 
-            autofocus 
+        <input
+            type="password"
+            id="apiKey"
+            placeholder="Your private Tycoon API key"
+            autofocus
         />
         <button onclick="trySaveAndRun()">Save & Start</button>
         <div id="status"></div>
         <div class="hint">Press ESC to pin/minimize • Enter to save</div>
     </div>
 
-    <!-- AUTO CACHE-BUST: Force fresh version on every load -->
+    <!-- AUTO CACHE-BUST -->
     <script>
         (function() {
             const url = new URL(location.href);
@@ -113,11 +105,17 @@
 
     <script>
         // ================================================================
-        // CONFIG & DOM REFERENCES
+        // CONFIG & GLOBALS
         // ================================================================
-        const API_URL      = 'https://tycoon-2epova.users.cfx.re/status/airline.json';
-        const KEY_STORAGE  = 'tycoonAutoApiKey';
-        const VRP_STORAGE  = 'tycoonVrpId';
+        const API_URL       = 'https://tycoon-2epova.users.cfx.re/status/airline.json';
+        const KEY_STORAGE   = 'tycoonAutoApiKey';
+        const VRP_STORAGE   = 'tycoonVrpId';
+        const POLL_INTERVAL = 15000; // 15 seconds backup poll
+        const NOTIF_INTERVAL = 1500; // 1.5 seconds notification check
+
+        let pollTimer = null;
+        let notifTimer = null;
+        let lastNotification = "";
 
         const keyBox   = document.getElementById('keyBox');
         const statusEl = document.getElementById('status');
@@ -127,138 +125,166 @@
         // ================================================================
         // HELPERS
         // ================================================================
-        function setWaypoint(x, y, z) {
-            const xCoord = parseFloat(x);
-            const yCoord = parseFloat(y);
-            const zCoord = parseFloat(z);
-            
+        function setWaypoint(x, y) {
             const waypointData = {
                 type: "setWaypoint",
-                x: xCoord,
-                y: yCoord,
-                z: zCoord
+                x: parseFloat(x),
+                y: parseFloat(y)
             };
-            
-            // Send to both window and parent
             window.postMessage(waypointData, "*");
-            if (window.parent !== window) {
-                window.parent.postMessage(waypointData, "*");
-            }
-            
-            // Debug output
-            console.log('Waypoint set with coords:', waypointData);
+            if (window.parent !== window) window.parent.postMessage(waypointData, "*");
+            console.log('Waypoint sent:', waypointData);
         }
 
         // ================================================================
-        // CORE FUNCTION: Fetch data & set waypoint (filtered by vRP ID)
+        // Fetch airline data
         // ================================================================
-        async function fetchAndSetWaypoint(key, vrpId) {
+        async function fetchAirlineData(key) {
+            const response = await fetch(API_URL, {
+                headers: { 'X-Tycoon-Key': key }
+            });
+            if (!response.ok) {
+                throw new Error(response.status === 401 ? 'invalid_key' : 'api_error');
+            }
+            return await response.json();
+        }
+
+        // ================================================================
+        // Process data & find your route
+        // ================================================================
+        async function processAirlineData(data, vrpId) {
+            console.log('Full API response:', data);
+            let yourRoute = null;
+            for (const [routeNum, routeData] of Object.entries(data)) {
+                const routeVrpId = routeData[3];
+                console.log(`Route ${routeNum} vRP ID:`, routeVrpId, 'Match:', routeVrpId.toString() === vrpId.toString());
+                if (routeVrpId.toString() === vrpId.toString()) {
+                    yourRoute = routeData;
+                    console.log('Found your route!', yourRoute);
+                    break;
+                }
+            }
+            return yourRoute;
+        }
+
+        // ================================================================
+        // Update waypoint logic
+        // ================================================================
+        async function updateWaypoint(key, vrpId, isInitial = false) {
             try {
-                const response = await fetch(API_URL, {
-                    headers: { 'X-Tycoon-Key': key }
-                });
+                const data = await fetchAirlineData(key);
+                const yourRoute = await processAirlineData(data, vrpId);
 
-                if (!response.ok) {
-                    throw new Error(response.status === 401 ? 'invalid_key' : 'api_error');
+                if (!yourRoute) {
+                    statusEl.textContent = 'You have no active airline route';
+                    statusEl.className = '';
+                    return;
                 }
 
-                const data = await response.json();
-                
-                // Debug: log all data
-                console.log('Full API response:', data);
-                console.log('Looking for vRP ID:', vrpId);
-                
-                // Filter to only routes matching YOUR vRP ID
-                let yourRoute = null;
-                for (const [routeNum, routeData] of Object.entries(data)) {
-                    const routeVrpId = routeData[3]; // vRP ID is 4th element
-                    console.log(`Route ${routeNum} vRP ID:`, routeVrpId, 'Match:', routeVrpId.toString() === vrpId.toString());
-                    if (routeVrpId.toString() === vrpId.toString()) {
-                        yourRoute = routeData;
-                        console.log('Found your route!', yourRoute);
-                        break;
-                    }
-                }
-
-                if (yourRoute) {
-                    const dest = yourRoute[1]; // destination object
-                    setWaypoint(dest.x, dest.y, dest.z);
+                const dest = yourRoute[1];
+                if (isInitial) {
+                    setWaypoint(dest.x, dest.y);
                     statusEl.textContent = `Waypoint set to ${dest.name} (${dest.airport}) ✓`;
                     statusEl.className = 'success';
                 } else {
-                    statusEl.textContent = 'You have no active airline route';
-                    statusEl.className = '';
+                    setWaypoint(dest.x, dest.y);
+                    statusEl.textContent = `Waypoint updated to ${dest.name} (${dest.airport}) ✓`;
+                    statusEl.className = 'success';
                 }
 
-                // Hide UI after success
                 keyBox.style.display = 'none';
-                return true;
-
             } catch (err) {
                 statusEl.className = 'error';
-                statusEl.textContent = 
-                    err.message === 'invalid_key' 
-                        ? 'Invalid API key' 
-                        : 'API error / no charges left';
-                return false;
+                statusEl.textContent = err.message === 'invalid_key' ? 'Invalid API key' : 'API error (check charges/key)';
             }
         }
 
         // ================================================================
-        // Save key + vRP ID & run (called by button or Enter)
+        // Notification watcher (detects "Boarding complete" or "Push back approved")
+        // ================================================================
+        function watchNotifications(key, vrpId) {
+            const currentNotif = window.notification || "";
+            if (currentNotif !== lastNotification) {
+                console.log('New notification detected:', currentNotif);
+                if (currentNotif.includes("Boarding complete") || 
+                    currentNotif.includes("Push back approved")) {
+                    
+                    console.log('Boarding/Pushback complete detected!');
+                    statusEl.textContent = 'Boarding complete detected → updating waypoint...';
+                    statusEl.className = 'success';
+                    updateWaypoint(key, vrpId, false); // refresh & set next waypoint
+                }
+                lastNotification = currentNotif;
+            }
+        }
+
+        function startNotificationWatcher(key, vrpId) {
+            if (notifTimer) clearInterval(notifTimer);
+            notifTimer = setInterval(() => watchNotifications(key, vrpId), NOTIF_INTERVAL);
+        }
+
+        // ================================================================
+        // Polling backup
+        // ================================================================
+        function startPolling(key, vrpId) {
+            if (pollTimer) clearInterval(pollTimer);
+            pollTimer = setInterval(() => updateWaypoint(key, vrpId, false), POLL_INTERVAL);
+        }
+
+        // ================================================================
+        // Save & initial run
         // ================================================================
         async function trySaveAndRun() {
-            const key = keyInput.value.trim();
+            const key   = keyInput.value.trim();
             const vrpId = vrpInput.value.trim();
-            
-            if (!vrpId) {
-                statusEl.textContent = 'Enter your vRP ID';
-                statusEl.className = 'error';
-                return;
-            }
-            
-            if (!key) {
-                statusEl.textContent = 'Enter your API key';
-                statusEl.className = 'error';
-                return;
-            }
+
+            if (!vrpId) { statusEl.textContent = 'Enter your vRP ID'; statusEl.className = 'error'; return; }
+            if (!key)   { statusEl.textContent = 'Enter your API key'; statusEl.className = 'error'; return; }
 
             statusEl.textContent = 'Validating...';
             statusEl.className = '';
 
-            if (await fetchAndSetWaypoint(key, vrpId)) {
-                localStorage.setItem(KEY_STORAGE, key);
-                localStorage.setItem(VRP_STORAGE, vrpId);
+            try {
+                const data = await fetchAirlineData(key);
+                const yourRoute = await processAirlineData(data, vrpId);
+
+                if (yourRoute) {
+                    await updateWaypoint(key, vrpId, true); // initial set
+                    localStorage.setItem(KEY_STORAGE, key);
+                    localStorage.setItem(VRP_STORAGE, vrpId);
+                    startPolling(key, vrpId);
+                    startNotificationWatcher(key, vrpId);
+                } else {
+                    statusEl.textContent = 'No active route – check if on job';
+                    statusEl.className = 'error';
+                }
+            } catch (err) {
+                statusEl.className = 'error';
+                statusEl.textContent = err.message === 'invalid_key' ? 'Invalid API key' : 'API error (check charges/key)';
             }
         }
 
         // ================================================================
-        // Auto-run on load (silent if key + vRP ID exist)
+        // Auto-run on load
         // ================================================================
         async function autoRun() {
-            const savedKey = localStorage.getItem(KEY_STORAGE);
+            const savedKey   = localStorage.getItem(KEY_STORAGE);
             const savedVrpId = localStorage.getItem(VRP_STORAGE);
 
             if (savedKey && savedVrpId) {
-                // Load saved values into inputs for visibility
                 vrpInput.value = savedVrpId;
                 keyInput.value = savedKey;
-                
-                const success = await fetchAndSetWaypoint(savedKey, savedVrpId);
-                if (!success) {
-                    keyBox.style.display = 'block';
-                    statusEl.textContent = 'Saved credentials invalid – please re-enter';
-                    statusEl.className = 'error';
-                }
+                await updateWaypoint(savedKey, savedVrpId, true);
+                startPolling(savedKey, savedVrpId);
+                startNotificationWatcher(savedKey, savedVrpId);
             } else {
                 keyBox.style.display = 'block';
             }
         }
 
         // ================================================================
-        // EVENT LISTENERS
+        // EVENTS
         // ================================================================
-        // ESC → pin window
         window.addEventListener('keydown', e => {
             if (e.key === "Escape") {
                 window.parent.postMessage({ type: "pin" }, "*");
@@ -266,7 +292,6 @@
             }
         });
 
-        // Enter in input → save & run
         keyInput.addEventListener('keydown', e => {
             if (e.key === 'Enter') {
                 e.preventDefault();
@@ -274,7 +299,13 @@
             }
         });
 
-        // Start the app
+        vrpInput.addEventListener('keydown', e => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                trySaveAndRun();
+            }
+        });
+
         autoRun();
     </script>
 </body>
