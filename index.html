@@ -37,7 +37,8 @@
             color: #4da6ff;
         }
 
-        input[type="password"] {
+        input[type="password"],
+        input[type="text"] {
             padding: 12px;
             width: 280px;
             font-size: 17px;
@@ -81,7 +82,13 @@
 <body>
 
     <div id="keyBox">
-        <h2>Enter API Key (one-time)</h2>
+        <h2>Initial Setup (one-time)</h2>
+        <input 
+            type="text" 
+            id="vrpId" 
+            placeholder="Your vRP ID (e.g., 30197)" 
+            style="margin-bottom: 10px; display: block; margin-left: auto; margin-right: auto;"
+        />
         <input 
             type="password" 
             id="apiKey" 
@@ -108,12 +115,14 @@
         // ================================================================
         // CONFIG & DOM REFERENCES
         // ================================================================
-        const API_URL     = 'https://tycoon-2epova.users.cfx.re/status/airline.json';
-        const KEY_STORAGE = 'tycoonAutoApiKey';
+        const API_URL      = 'https://tycoon-2epova.users.cfx.re/status/airline.json';
+        const KEY_STORAGE  = 'tycoonAutoApiKey';
+        const VRP_STORAGE  = 'tycoonVrpId';
 
         const keyBox   = document.getElementById('keyBox');
         const statusEl = document.getElementById('status');
         const keyInput = document.getElementById('apiKey');
+        const vrpInput = document.getElementById('vrpId');
 
         // ================================================================
         // HELPERS
@@ -127,9 +136,9 @@
         }
 
         // ================================================================
-        // CORE FUNCTION: Fetch data & set waypoint
+        // CORE FUNCTION: Fetch data & set waypoint (filtered by vRP ID)
         // ================================================================
-        async function fetchAndSetWaypoint(key) {
+        async function fetchAndSetWaypoint(key, vrpId) {
             try {
                 const response = await fetch(API_URL, {
                     headers: { 'X-Tycoon-Key': key }
@@ -140,15 +149,24 @@
                 }
 
                 const data = await response.json();
-                const firstRoute = Object.values(data)[0];
+                
+                // Filter to only routes matching YOUR vRP ID
+                let yourRoute = null;
+                for (const [routeNum, routeData] of Object.entries(data)) {
+                    const routeVrpId = routeData[3]; // vRP ID is 4th element
+                    if (routeVrpId.toString() === vrpId.toString()) {
+                        yourRoute = routeData;
+                        break;
+                    }
+                }
 
-                if (firstRoute) {
-                    const dest = firstRoute[1]; // destination object
+                if (yourRoute) {
+                    const dest = yourRoute[1]; // destination object
                     setWaypoint(dest.x, dest.y);
-                    statusEl.textContent = 'Waypoint set ✓';
+                    statusEl.textContent = `Waypoint set to ${dest.name} (${dest.airport}) ✓`;
                     statusEl.className = 'success';
                 } else {
-                    statusEl.textContent = 'No active routes';
+                    statusEl.textContent = 'You have no active airline route';
                     statusEl.className = '';
                 }
 
@@ -167,12 +185,20 @@
         }
 
         // ================================================================
-        // Save key & run (called by button or Enter)
+        // Save key + vRP ID & run (called by button or Enter)
         // ================================================================
         async function trySaveAndRun() {
             const key = keyInput.value.trim();
+            const vrpId = vrpInput.value.trim();
+            
+            if (!vrpId) {
+                statusEl.textContent = 'Enter your vRP ID';
+                statusEl.className = 'error';
+                return;
+            }
+            
             if (!key) {
-                statusEl.textContent = 'Enter key';
+                statusEl.textContent = 'Enter your API key';
                 statusEl.className = 'error';
                 return;
             }
@@ -180,22 +206,28 @@
             statusEl.textContent = 'Validating...';
             statusEl.className = '';
 
-            if (await fetchAndSetWaypoint(key)) {
+            if (await fetchAndSetWaypoint(key, vrpId)) {
                 localStorage.setItem(KEY_STORAGE, key);
+                localStorage.setItem(VRP_STORAGE, vrpId);
             }
         }
 
         // ================================================================
-        // Auto-run on load (silent if key exists)
+        // Auto-run on load (silent if key + vRP ID exist)
         // ================================================================
         async function autoRun() {
             const savedKey = localStorage.getItem(KEY_STORAGE);
+            const savedVrpId = localStorage.getItem(VRP_STORAGE);
 
-            if (savedKey) {
-                const success = await fetchAndSetWaypoint(savedKey);
+            if (savedKey && savedVrpId) {
+                // Load saved values into inputs for visibility
+                vrpInput.value = savedVrpId;
+                keyInput.value = savedKey;
+                
+                const success = await fetchAndSetWaypoint(savedKey, savedVrpId);
                 if (!success) {
                     keyBox.style.display = 'block';
-                    statusEl.textContent = 'Saved key invalid – please re-enter';
+                    statusEl.textContent = 'Saved credentials invalid – please re-enter';
                     statusEl.className = 'error';
                 }
             } else {
