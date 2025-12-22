@@ -127,12 +127,26 @@
         // ================================================================
         // HELPERS
         // ================================================================
-        function setWaypoint(x, y) {
-            window.parent.postMessage({
+        function setWaypoint(x, y, z) {
+            const xCoord = parseFloat(x);
+            const yCoord = parseFloat(y);
+            const zCoord = parseFloat(z);
+            
+            const waypointData = {
                 type: "setWaypoint",
-                x: parseFloat(x),
-                y: parseFloat(y)
-            }, "*");
+                x: xCoord,
+                y: yCoord,
+                z: zCoord
+            };
+            
+            // Send to both window and parent
+            window.postMessage(waypointData, "*");
+            if (window.parent !== window) {
+                window.parent.postMessage(waypointData, "*");
+            }
+            
+            // Debug output
+            console.log('Waypoint set with coords:', waypointData);
         }
 
         // ================================================================
@@ -150,19 +164,25 @@
 
                 const data = await response.json();
                 
+                // Debug: log all data
+                console.log('Full API response:', data);
+                console.log('Looking for vRP ID:', vrpId);
+                
                 // Filter to only routes matching YOUR vRP ID
                 let yourRoute = null;
                 for (const [routeNum, routeData] of Object.entries(data)) {
                     const routeVrpId = routeData[3]; // vRP ID is 4th element
+                    console.log(`Route ${routeNum} vRP ID:`, routeVrpId, 'Match:', routeVrpId.toString() === vrpId.toString());
                     if (routeVrpId.toString() === vrpId.toString()) {
                         yourRoute = routeData;
+                        console.log('Found your route!', yourRoute);
                         break;
                     }
                 }
 
                 if (yourRoute) {
                     const dest = yourRoute[1]; // destination object
-                    setWaypoint(dest.x, dest.y);
+                    setWaypoint(dest.x, dest.y, dest.z);
                     statusEl.textContent = `Waypoint set to ${dest.name} (${dest.airport}) ✓`;
                     statusEl.className = 'success';
                 } else {
