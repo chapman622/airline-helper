@@ -1,108 +1,229 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Auto Airline WP</title>
+
     <style>
-        body{background:transparent;color:#fff;font-family:Arial,sans-serif;margin:0;padding:0;overflow:hidden}
-        #keyBox{position:absolute;top:40%;left:50%;transform:translate(-50%,-50%);
-                background:rgba(0,0,0,0.85);padding:25px 35px;border-radius:12px;
-                border:1px solid #555;box-shadow:0 0 25px rgba(0,0,0,0.9);
-                text-align:center;min-width:400px;display:none;z-index:9999}
-        h2{margin:0 0 18px;font-size:21px;color:#4da6ff}
-        input[type=password]{padding:12px;width:280px;font-size:17px;border:1px solid #666;
-                border-radius:6px;background:#111;color:#fff}
-        button{padding:12px 24px;font-size:17px;margin-left:12px;background:#007bff;
-               color:white;border:none;border-radius:6px;cursor:pointer}
-        button:hover{background:#0056b3}
-        #status{margin-top:15px;font-size:15px;min-height:22px}
-        .error{color:#ff5555}.success{color:#55ff99}
-        .hint{margin-top:20px;font-size:13px;color:#aaa}
+        body {
+            background: transparent;
+            color: #fff;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        #keyBox {
+            position: absolute;
+            top: 40%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.85);
+            padding: 25px 35px;
+            border-radius: 12px;
+            border: 1px solid #555;
+            box-shadow: 0 0 25px rgba(0, 0, 0, 0.9);
+            text-align: center;
+            min-width: 400px;
+            display: none;
+            z-index: 9999;
+        }
+
+        h2 {
+            margin: 0 0 18px;
+            font-size: 21px;
+            color: #4da6ff;
+        }
+
+        input[type="password"] {
+            padding: 12px;
+            width: 280px;
+            font-size: 17px;
+            border: 1px solid #666;
+            border-radius: 6px;
+            background: #111;
+            color: #fff;
+        }
+
+        button {
+            padding: 12px 24px;
+            font-size: 17px;
+            margin-left: 12px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        #status {
+            margin-top: 15px;
+            font-size: 15px;
+            min-height: 22px;
+        }
+
+        .error { color: #ff5555; }
+        .success { color: #55ff99; }
+
+        .hint {
+            margin-top: 20px;
+            font-size: 13px;
+            color: #aaa;
+        }
     </style>
 </head>
 <body>
 
-<div id="keyBox">
-    <h2>Enter API Key (one-time)</h2>
-    <input type="password" id="apiKey" placeholder="Your private Tycoon API key" autofocus />
-    <button onclick="trySaveAndRun()">Save & Start</button>
-    <div id="status"></div>
-    <div class="hint">Press ESC to pin/minimize • Enter to save</div>
-</div>
+    <div id="keyBox">
+        <h2>Enter API Key (one-time)</h2>
+        <input 
+            type="password" 
+            id="apiKey" 
+            placeholder="Your private Tycoon API key" 
+            autofocus 
+        />
+        <button onclick="trySaveAndRun()">Save & Start</button>
+        <div id="status"></div>
+        <div class="hint">Press ESC to pin/minimize • Enter to save</div>
+    </div>
 
-<!-- AUTO CACHE-BUST -->
-<script>
-(function(){const u=new URL(location.href);if(!u.searchParams.has("v")){u.searchParams.set("v",Date.now());location.replace(u)}})();
-</script>
+    <!-- AUTO CACHE-BUST: Force fresh version on every load -->
+    <script>
+        (function() {
+            const url = new URL(location.href);
+            if (!url.searchParams.has("v")) {
+                url.searchParams.set("v", Date.now());
+                location.replace(url);
+            }
+        })();
+    </script>
 
-<script>
-// ESC → pin the window
-window.addEventListener('keydown', e => {
-    if (e.key === "Escape") {
-        window.parent.postMessage({type:"pin"},"*");
-        e.preventDefault();
-    }
-});
+    <script>
+        // ================================================================
+        // CONFIG & DOM REFERENCES
+        // ================================================================
+        const API_URL     = 'https://tycoon-2epova.users.cfx.re/status/airline.json';
+        const KEY_STORAGE = 'tycoonAutoApiKey';
 
-const API_URL = 'https://tycoon-2epova.users.cfx.re/status/airline.json';
-const KEY_STORAGE = 'tycoonAutoApiKey';
-const keyBox = document.getElementById('keyBox');
-const statusEl = document.getElementById('status');
-const keyInput = document.getElementById('apiKey');
+        const keyBox   = document.getElementById('keyBox');
+        const statusEl = document.getElementById('status');
+        const keyInput = document.getElementById('apiKey');
 
-function setWaypoint(x,y){
-    window.parent.postMessage({type:"setWaypoint",x:parseFloat(x),y:parseFloat(y)},"*");
-}
-
-async function fetchAndSetWaypoint(key){
-    try{
-        const r = await fetch(API_URL,{headers:{'X-Tycoon-Key':key}});
-        if(!r.ok) throw new Error(r.status===401?'invalid_key':'api_error');
-        const data = await r.json();
-        const first = Object.values(data)[0];
-        if(first){
-            const dest = first[1];
-            setWaypoint(dest.x,dest.y);
-            statusEl.textContent='Waypoint set';statusEl.className='success';
-        }else{
-            statusEl.textContent='No active routes';statusEl.className='';
+        // ================================================================
+        // HELPERS
+        // ================================================================
+        function setWaypoint(x, y) {
+            window.parent.postMessage({
+                type: "setWaypoint",
+                x: parseFloat(x),
+                y: parseFloat(y)
+            }, "*");
         }
-        keyBox.style.display='none';
-        return true;
-    }catch(err){
-        statusEl.className='error';
-        statusEl.textContent = err.message==='invalid_key'?'Invalid API key':'API error / no charges';
-        return false;
-    }
-}
 
-async function trySaveAndRun(){
-    const key = keyInput.value.trim();
-    if(!key){statusEl.textContent='Enter key';statusEl.className='error';return}
-    statusEl.textContent='Validating...';statusEl.className='';
-    if(await fetchAndSetWaypoint(key)) localStorage.setItem(KEY_STORAGE,key);
-}
+        // ================================================================
+        // CORE FUNCTION: Fetch data & set waypoint
+        // ================================================================
+        async function fetchAndSetWaypoint(key) {
+            try {
+                const response = await fetch(API_URL, {
+                    headers: { 'X-Tycoon-Key': key }
+                });
 
-async function autoRun(){
-    const saved = localStorage.getItem(KEY_STORAGE);
-    if(saved){
-        if(!await fetchAndSetWaypoint(saved)){
-            keyBox.style.display='block';
-            statusEl.textContent='Saved key invalid – re-enter';
-            statusEl.className='error';
+                if (!response.ok) {
+                    throw new Error(response.status === 401 ? 'invalid_key' : 'api_error');
+                }
+
+                const data = await response.json();
+                const firstRoute = Object.values(data)[0];
+
+                if (firstRoute) {
+                    const dest = firstRoute[1]; // destination object
+                    setWaypoint(dest.x, dest.y);
+                    statusEl.textContent = 'Waypoint set ✓';
+                    statusEl.className = 'success';
+                } else {
+                    statusEl.textContent = 'No active routes';
+                    statusEl.className = '';
+                }
+
+                // Hide UI after success
+                keyBox.style.display = 'none';
+                return true;
+
+            } catch (err) {
+                statusEl.className = 'error';
+                statusEl.textContent = 
+                    err.message === 'invalid_key' 
+                        ? 'Invalid API key' 
+                        : 'API error / no charges left';
+                return false;
+            }
         }
-    }else keyBox.style.display='block';
-}
 
-// Enter key in the input → save & run
-keyInput.addEventListener('keydown', e => {
-    if(e.key === 'Enter'){
-        e.preventDefault();
-        trySaveAndRun();
-    }
-});
+        // ================================================================
+        // Save key & run (called by button or Enter)
+        // ================================================================
+        async function trySaveAndRun() {
+            const key = keyInput.value.trim();
+            if (!key) {
+                statusEl.textContent = 'Enter key';
+                statusEl.className = 'error';
+                return;
+            }
 
-autoRun();
-</script>
+            statusEl.textContent = 'Validating...';
+            statusEl.className = '';
+
+            if (await fetchAndSetWaypoint(key)) {
+                localStorage.setItem(KEY_STORAGE, key);
+            }
+        }
+
+        // ================================================================
+        // Auto-run on load (silent if key exists)
+        // ================================================================
+        async function autoRun() {
+            const savedKey = localStorage.getItem(KEY_STORAGE);
+
+            if (savedKey) {
+                const success = await fetchAndSetWaypoint(savedKey);
+                if (!success) {
+                    keyBox.style.display = 'block';
+                    statusEl.textContent = 'Saved key invalid – please re-enter';
+                    statusEl.className = 'error';
+                }
+            } else {
+                keyBox.style.display = 'block';
+            }
+        }
+
+        // ================================================================
+        // EVENT LISTENERS
+        // ================================================================
+        // ESC → pin window
+        window.addEventListener('keydown', e => {
+            if (e.key === "Escape") {
+                window.parent.postMessage({ type: "pin" }, "*");
+                e.preventDefault();
+            }
+        });
+
+        // Enter in input → save & run
+        keyInput.addEventListener('keydown', e => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                trySaveAndRun();
+            }
+        });
+
+        // Start the app
+        autoRun();
+    </script>
 </body>
 </html>
