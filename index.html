@@ -63,12 +63,39 @@
             font-size: 15px;
             min-height: 22px;
         }
-        .error { color: #ff5555; }
-        .success { color: #55ff99; }
+        .error {
+            color: #ff5555;
+        }
+        .success {
+            color: #55ff99;
+        }
         .hint {
             margin-top: 20px;
             font-size: 13px;
             color: #aaa;
+        }
+        /* Persistent re-set button (bottom-left, inspired by crate button) */
+        #resetButton {
+            position: fixed;
+            bottom: 100px;
+            left: 20px;
+            width: 40px;
+            height: 40px;
+            cursor: pointer;
+            z-index: 9999;
+            opacity: 0.6;
+            transition: opacity 0.3s;
+            background: #28a745;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #resetButton:hover {
+            opacity: 1;
+        }
+        #resetButton span {
+            font-size: 20px;
         }
     </style>
 </head>
@@ -83,9 +110,14 @@
         <div class="hint">Press ESC to pin/minimize • Enter to save</div>
     </div>
 
+    <!-- Persistent re-set button -->
+    <div id="resetButton" title="Re-set current waypoint">
+        <span>✈️</span>
+    </div>
+
     <!-- AUTO CACHE-BUST -->
     <script>
-        (function() {
+        (function () {
             const url = new URL(location.href);
             if (!url.searchParams.has("v")) {
                 url.searchParams.set("v", Date.now());
@@ -98,23 +130,24 @@
         // ================================================================
         // CONFIG & GLOBALS
         // ================================================================
-        const API_URL          = 'https://tycoon-2epova.users.cfx.re/status/airline.json';
-        const KEY_STORAGE      = 'tycoonAutoApiKey';
-        const VRP_STORAGE      = 'tycoonVrpId';
-        const NOTIF_INTERVAL   = 1500;   // Check notification every 1.5s (free)
-        const BURST_INTERVAL   = 5000;   // 5s retries after notification (catches ~5s delay)
-        const MAX_BURST        = 8;      // Up to 40s burst max (adjust if needed)
+        const API_URL = 'https://tycoon-2epova.users.cfx.re/status/airline.json';
+        const KEY_STORAGE = 'tycoonAutoApiKey';
+        const VRP_STORAGE = 'tycoonVrpId';
+        const NOTIF_INTERVAL = 1500;   // Check notification every 1.5s (free)
+        const BURST_INTERVAL = 5000;   // 5s retries after notification (catches ~5s delay)
+        const MAX_BURST = 8;           // Up to 40s burst max
 
-        let notifTimer         = null;
-        let burstTimer         = null;
-        let lastNotification   = "";
-        let lastDestX          = null;
-        let lastDestY          = null;
+        let notifTimer = null;
+        let burstTimer = null;
+        let lastNotification = "";
+        let lastDestX = null;
+        let lastDestY = null;
 
-        const keyBox   = document.getElementById('keyBox');
+        const keyBox = document.getElementById('keyBox');
         const statusEl = document.getElementById('status');
         const keyInput = document.getElementById('apiKey');
         const vrpInput = document.getElementById('vrpId');
+        const resetBtn = document.getElementById('resetButton');
 
         // ================================================================
         // HELPERS
@@ -163,7 +196,7 @@
 
                 // Only set if coords changed
                 if (lastDestX !== null && (currX !== lastDestX || currY !== lastDestY)) {
-                    console.log('New destination detected:', dest.name);
+                    console.log('New destination:', dest.name);
                     setWaypoint(currX, currY);
                     statusEl.textContent = `Waypoint updated: ${dest.name} (${dest.airport}) ✓`;
                     statusEl.className = 'success';
@@ -222,7 +255,7 @@
         // Save & initial run
         // ================================================================
         async function trySaveAndRun() {
-            const key   = keyInput.value.trim();
+            const key = keyInput.value.trim();
             const vrpId = vrpInput.value.trim();
 
             if (!vrpId || !key) {
@@ -247,7 +280,7 @@
         // Auto-run on load
         // ================================================================
         async function autoRun() {
-            const key   = localStorage.getItem(KEY_STORAGE);
+            const key = localStorage.getItem(KEY_STORAGE);
             const vrpId = localStorage.getItem(VRP_STORAGE);
 
             if (key && vrpId) {
@@ -278,6 +311,20 @@
                 }
             });
         });
+
+        // Re-set button
+        document.getElementById('resetButton').addEventListener('click', () => {
+            const key = localStorage.getItem(KEY_STORAGE);
+            const vrpId = localStorage.getItem(VRP_STORAGE);
+            if (key && vrpId) {
+                tryUpdateWaypoint(key, vrpId);
+                statusEl.textContent = 'Waypoint re-set manually ✓';
+                statusEl.className = 'success';
+            }
+        });
+
+        // Request initial cached notification on load
+        window.parent.postMessage({ type: "getNamedData", keys: ["notification"] }, "*");
 
         autoRun();
     </script>
