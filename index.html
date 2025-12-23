@@ -1,260 +1,231 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Auto Airline WP</title>
-
 <style>
-body {
-    background: transparent;
-    color: #fff;
-    font-family: Arial, sans-serif;
-    margin: 0;
-    overflow: hidden;
-}
-#keyBox {
-    position: absolute;
-    top: 40%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: rgba(0,0,0,.85);
-    padding: 25px 35px;
-    border-radius: 12px;
-    min-width: 400px;
-    display: none;
-    z-index: 9999;
-}
-input {
-    padding: 12px;
-    width: 280px;
-    margin: 6px auto;
-    display: block;
-    background: #111;
-    color: #fff;
-    border: 1px solid #666;
-    border-radius: 6px;
-}
-button {
-    padding: 12px 24px;
-    margin-top: 8px;
-    font-size: 16px;
-    background: #007bff;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-}
-#status { margin-top: 12px; min-height: 20px; }
-.success { color: #55ff99; }
-.error { color: #ff6666; }
-
-#refreshButton {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    width: 52px;
-    height: 52px;
-    border-radius: 50%;
-    background: #28a745;
-    border: 2px solid #1e7e34;
-    font-size: 24px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
+    body { background: transparent; color: #fff; font-family: Arial; margin:0; padding:0; overflow:hidden; }
+    #keyBox { position:absolute; top:40%; left:50%; transform:translate(-50%,-50%); background: rgba(0,0,0,0.85); padding:25px 35px; border-radius:12px; border:1px solid #555; box-shadow:0 0 25px rgba(0,0,0,0.9); text-align:center; min-width:400px; display:none; z-index:9999; }
+    h2 { margin:0 0 18px; font-size:21px; color:#4da6ff; }
+    input { padding:12px; width:280px; font-size:17px; border:1px solid #666; border-radius:6px; background:#111; color:#fff; display:block; margin:0 auto 10px; }
+    button { padding:12px 24px; font-size:17px; margin:5px; background:#007bff; color:white; border:none; border-radius:6px; cursor:pointer; }
+    button:hover { background:#0056b3; }
+    #status { margin-top:15px; font-size:15px; min-height:22px; }
+    .error { color:#ff5555; }
+    .success { color:#55ff99; }
+    #refreshButton { position:fixed; bottom:20px; right:20px; width:50px; height:50px; cursor:pointer; z-index:9999; opacity:0.7; transition:opacity 0.3s; background:#28a745; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:24px; border:2px solid #1e7e34; }
+    #refreshButton:hover { opacity:1; transform:scale(1.1); transition:all 0.2s; }
 </style>
 </head>
-
 <body>
 
 <div id="keyBox">
-    <h2>Initial Setup</h2>
-    <input id="vrpId" placeholder="Your vRP ID">
-    <input id="apiKey" type="password" placeholder="Tycoon API Key">
+    <h2>Initial Setup (one-time)</h2>
+    <input type="text" id="vrpId" placeholder="Your vRP ID (e.g., 30197)">
+    <input type="password" id="apiKey" placeholder="Your private Tycoon API key" autofocus>
     <button onclick="trySaveAndRun()">Save & Start</button>
     <div id="status"></div>
 </div>
 
-<div id="refreshButton">✈️</div>
+<div id="refreshButton" title="Refresh waypoint now">✈️</div>
 
-<!-- AUTO CACHE BUST -->
 <script>
-(function(){
-    const u=new URL(location.href);
-    if(!u.searchParams.has("v")){
-        u.searchParams.set("v",Date.now());
-        location.replace(u);
+(function() {
+    // Auto cache-bust
+    const url = new URL(location.href);
+    if(!url.searchParams.has("v")) {
+        url.searchParams.set("v", Date.now());
+        location.replace(url);
     }
 })();
 </script>
 
 <script>
-/* =======================================================
-   CONFIG
-======================================================= */
 const API_URL = 'https://tycoon-2epova.users.cfx.re/status/airline.json';
 const KEY_STORAGE = 'tycoonAutoApiKey';
 const VRP_STORAGE = 'tycoonVrpId';
-
 const BURST_INTERVAL = 3000;
 const MAX_BURST_CHECKS = 20;
 
-/* =======================================================
-   STATE
-======================================================= */
-let lastDestSig = null;
-let lastNotification = '';
-let isInBurstMode = false;
 let burstTimer = null;
 let burstCount = 0;
+let lastDestination = '';
+let isInBurstMode = false;
 
-/* =======================================================
-   ELEMENTS
-======================================================= */
 const keyBox = document.getElementById('keyBox');
 const statusEl = document.getElementById('status');
-const refreshBtn = document.getElementById('refreshButton');
 const keyInput = document.getElementById('apiKey');
 const vrpInput = document.getElementById('vrpId');
+const refreshBtn = document.getElementById('refreshButton');
 
-/* =======================================================
-   SAFE DEBUG (FiveM)
-======================================================= */
-function notify(text){
-    window.parent.postMessage({
-        type: "info",
-        text,
-        time: 3
-    },"*");
-}
-
-/* =======================================================
-   WAYPOINT
-======================================================= */
+// ------------------------
+// Helpers
+// ------------------------
 function setWaypoint(x,y,z){
-    const msg={ type:"setWaypoint", x:+x, y:+y, z:+z };
+    const msg = { type: "setWaypoint", x: parseFloat(x), y: parseFloat(y), z: parseFloat(z) };
     window.postMessage(msg,"*");
-    window.parent.postMessage(msg,"*");
+    if(window.parent!==window) window.parent.postMessage(msg,"*");
+    console.log('Waypoint set:', msg);
 }
 
-/* =======================================================
-   FETCH & COMPARE
-======================================================= */
-async function fetchAndSetWaypoint(key, vrp, silent=false){
-    const r = await fetch(API_URL,{ headers:{'X-Tycoon-Key':key}});
-    if(!r.ok) return;
+async function fetchAndSetWaypoint(key, vrpId, isSilent=false){
+    try{
+        const response = await fetch(API_URL, { headers:{'X-Tycoon-Key':key} });
+        if(!response.ok) throw new Error(response.status===401?'invalid_key':'api_error');
+        const data = await response.json();
 
-    const data = await r.json();
-
-    for(const route of Object.values(data)){
-        if(route[3].toString() === vrp.toString()){
-            const d = route[1];
-            const sig = `${d.x}|${d.y}|${d.z}`;
-
-            if(sig !== lastDestSig){
-                lastDestSig = sig;
-                setWaypoint(d.x,d.y,d.z);
-
-                if(!silent){
-                    statusEl.textContent = `Waypoint set: ${d.name}`;
-                    statusEl.className = 'success';
-                }
-
-                notify("✈️ New destination detected");
-                stopBurstPolling();
+        let foundRoute = null;
+        for(const route of Object.values(data)){
+            if(route[3].toString()===vrpId.toString()){
+                foundRoute = route;
+                break;
             }
-            return;
         }
+        if(foundRoute){
+            const dest = foundRoute[1];
+            const destSig = `${dest.x}|${dest.y}|${dest.z}`;
+            if(destSig!==lastDestination){
+                lastDestination = destSig;
+                setWaypoint(dest.x,dest.y,dest.z);
+                console.log('✓ NEW ROUTE DETECTED:', dest.name);
+                if(!isSilent){
+                    statusEl.textContent = `Waypoint: ${dest.name} (${dest.airport}) ✓`;
+                    statusEl.className='success';
+                }
+                refreshBtn.style.background='#00ff00';
+                setTimeout(()=>{refreshBtn.style.background='#28a745';},500);
+                if(isInBurstMode) stopBurstPolling();
+                return true;
+            }
+        }else{
+            lastDestination='';
+            if(!isSilent){
+                statusEl.textContent='No active airline route';
+                statusEl.className='';
+            }
+        }
+        if(!isSilent) keyBox.style.display='none';
+        return true;
+    }catch(err){
+        console.error('Fetch error:',err);
+        if(!isSilent){
+            statusEl.className='error';
+            statusEl.textContent = err.message==='invalid_key'?'Invalid API key':'API error';
+        }
+        return false;
     }
 }
 
-/* =======================================================
-   BURST POLLING (FIXED)
-======================================================= */
+// ------------------------
+// Burst polling
+// ------------------------
 function startBurstPolling(){
     if(isInBurstMode) return;
-
+    isInBurstMode=true;
+    burstCount=0;
     const key = localStorage.getItem(KEY_STORAGE);
-    const vrp = localStorage.getItem(VRP_STORAGE);
-    if(!key||!vrp) return;
-
-    isInBurstMode = true;
-    burstCount = 0;
-
-    // 🔑 CRITICAL FIX
-    lastDestSig = null;
-
-    notify("Boarding complete – waiting for new route");
-
-    fetchAndSetWaypoint(key,vrp,true);
-
+    const vrpId = localStorage.getItem(VRP_STORAGE);
+    if(!key || !vrpId) return;
+    console.log('Starting burst polling...');
+    fetchAndSetWaypoint(key,vrpId,true);
     burstTimer = setInterval(()=>{
         burstCount++;
-        fetchAndSetWaypoint(key,vrp,true);
-
-        if(burstCount >= MAX_BURST_CHECKS){
-            stopBurstPolling();
-        }
+        console.log(`Burst check ${burstCount}/${MAX_BURST_CHECKS}`);
+        fetchAndSetWaypoint(key,vrpId,true);
+        if(burstCount>=MAX_BURST_CHECKS) stopBurstPolling();
     },BURST_INTERVAL);
+    refreshBtn.style.background='#ffa500';
 }
 
 function stopBurstPolling(){
-    if(burstTimer) clearInterval(burstTimer);
-    burstTimer=null;
+    if(burstTimer){ clearInterval(burstTimer); burstTimer=null; }
     isInBurstMode=false;
+    burstCount=0;
+    refreshBtn.style.background='#28a745';
+    console.log('✓ Burst polling stopped');
 }
 
-/* =======================================================
-   GAME DATA LISTENER
-======================================================= */
-window.addEventListener('message',e=>{
-    if(e.data?.type==='dataUpdate'){
-        const n=e.data.data?.notification;
-        if(n && n!==lastNotification){
-            lastNotification=n;
-            if(n.toLowerCase().includes('boarding complete')){
+// ------------------------
+// Event listeners
+// ------------------------
+window.addEventListener('message', e=>{
+    if(e.data && e.data.type==='dataUpdate' && e.data.data){
+        const data=e.data.data;
+        if(data.notification && data.notification!==lastNotification){
+            lastNotification=data.notification;
+            console.log('Notification:', data.notification);
+            const notifLower=data.notification.toLowerCase();
+            if(notifLower.includes('boarding complete') && notifLower.includes('push back')){
+                console.log('🛫 BOARDING DETECTED! Starting burst...');
                 startBurstPolling();
             }
         }
     }
 });
 
-/* =======================================================
-   SETUP
-======================================================= */
+window.addEventListener('keydown', e=>{
+    if(e.key==='Escape'){
+        window.parent.postMessage({type:'pin'},'*');
+        e.preventDefault();
+    }
+});
+
+[keyInput,vrpInput].forEach(input=>{
+    input.addEventListener('keydown',e=>{
+        if(e.key==='Enter'){ e.preventDefault(); trySaveAndRun(); }
+    });
+});
+
+refreshBtn.addEventListener('click', ()=>{
+    const key = localStorage.getItem(KEY_STORAGE);
+    const vrpId = localStorage.getItem(VRP_STORAGE);
+    if(key && vrpId){
+        console.log('Manual refresh triggered');
+        fetchAndSetWaypoint(key,vrpId,false);
+    }
+});
+
+// ------------------------
+// Save & initial run
+// ------------------------
 async function trySaveAndRun(){
-    const key=keyInput.value.trim();
-    const vrp=vrpInput.value.trim();
-    if(!key||!vrp) return;
-
-    localStorage.setItem(KEY_STORAGE,key);
-    localStorage.setItem(VRP_STORAGE,vrp);
-
-    await fetchAndSetWaypoint(key,vrp,false);
-    keyBox.style.display='none';
-}
-
-async function autoRun(){
-    const key=localStorage.getItem(KEY_STORAGE);
-    const vrp=localStorage.getItem(VRP_STORAGE);
-
-    if(key&&vrp){
-        keyInput.value=key;
-        vrpInput.value=vrp;
-        await fetchAndSetWaypoint(key,vrp,false);
-    } else {
-        keyBox.style.display='block';
+    const key = keyInput.value.trim();
+    const vrpId = vrpInput.value.trim();
+    if(!vrpId || !key){
+        statusEl.textContent=!vrpId?'Enter vRP ID':'Enter API key';
+        statusEl.className='error';
+        return;
+    }
+    statusEl.textContent='Validating...';
+    statusEl.className='';
+    if(await fetchAndSetWaypoint(key,vrpId,false)){
+        localStorage.setItem(KEY_STORAGE,key);
+        localStorage.setItem(VRP_STORAGE,vrpId);
+        console.log('Initial setup complete');
     }
 }
 
-refreshBtn.onclick=()=>{
-    const key=localStorage.getItem(KEY_STORAGE);
-    const vrp=localStorage.getItem(VRP_STORAGE);
-    if(key&&vrp) fetchAndSetWaypoint(key,vrp,false);
-};
+async function autoRun(){
+    const key = localStorage.getItem(KEY_STORAGE);
+    const vrpId = localStorage.getItem(VRP_STORAGE);
+    if(key && vrpId){
+        vrpInput.value=vrpId;
+        keyInput.value=key;
+        const success = await fetchAndSetWaypoint(key,vrpId,false);
+        if(!success){
+            keyBox.style.display='block';
+            statusEl.textContent='Saved credentials invalid';
+            statusEl.className='error';
+        }
+    }else keyBox.style.display='block';
+}
 
-window.parent.postMessage({type:"getData"},"*");
+// ------------------------
+// Start app
+// ------------------------
+window.parent.postMessage({type:'getData'},'*');
+console.log('Requested initial game data');
 autoRun();
 </script>
 </body>
