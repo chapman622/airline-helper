@@ -112,7 +112,7 @@
 
     <div id="refreshButton" title="Refresh waypoint now">✈️</div>
 
-    <!-- AUTO CACHE-BUST: Force fresh version if no ?v= parameter -->
+    <!-- AUTO CACHE-BUST: Force fresh load if no ?v= parameter -->
     <script>
         (function() {
             const url = new URL(window.location.href);
@@ -333,7 +333,7 @@
             if (key && vrpId) fetchAndSetWaypoint(key, vrpId, false);
         });
 
-        // Request initial cached data (optional but useful)
+        // Request initial cached data
         window.parent.postMessage({ type: 'getData' }, '*');
 
         autoRun();
