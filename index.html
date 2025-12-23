@@ -124,7 +124,7 @@
         const API_URL = 'https://tycoon-2epova.users.cfx.re/status/airline.json';
         const KEY_STORAGE = 'tycoonAutoApiKey';
         const VRP_STORAGE = 'tycoonVrpId';
-        const NOTIF_INTERVAL = 1500;   // Check every 1.5s
+        const NOTIF_INTERVAL = 1500;   // Check every 1.5s (free)
         const BURST_INTERVAL = 5000;   // 5s retries (matches ~5s delay)
         const MAX_BURST = 8;           // ~40s max burst
 
@@ -192,7 +192,10 @@
                 const data = await fetchAirlineData(key);
                 const route = await getYourRoute(data, vrpId);
 
-                if (!route) return;
+                if (!route) {
+                    console.log('No active route for vRP ID');
+                    return;
+                }
 
                 const dest = route[1];
                 const currX = parseFloat(dest.x);
@@ -227,7 +230,7 @@
                 lastNotification = currentNotif;
 
                 const lower = currentNotif.toLowerCase();
-                // Exact match for your text (handles multi-line or slight variations)
+                // Match your exact multi-line text (handles \n or spaces)
                 if (lower.includes("boarding complete") && lower.includes("push back approved")) {
                     console.log('EXACT MATCH! Boarding complete + Push back approved detected!');
                     statusEl.textContent = 'Boarding complete detected → checking next leg...';
