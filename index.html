@@ -80,9 +80,7 @@
             url.searchParams.set("v", Date.now().toString());
             window.location.replace(url.toString());
         }
-    } catch (e) {
-        console.warn("Cache bust skipped:", e);
-    }
+    } catch {}
 })();
 </script>
 
@@ -104,11 +102,12 @@ const VRP_STORAGE = 'tycoonVrpId';
 const BURST_INTERVAL = 3000;
 const MAX_BURST_CHECKS = 20;
 
+/* ================= STATE ================= */
 let burstTimer = null;
 let burstCount = 0;
-let lastRouteId = null;
-let lastNotification = '';
 let isInBurstMode = false;
+let lastNotification = null;
+let lastDestSig = null;
 
 const keyBox = document.getElementById('keyBox');
 const statusEl = document.getElementById('status');
@@ -116,7 +115,7 @@ const keyInput = document.getElementById('apiKey');
 const vrpInput = document.getElementById('vrpId');
 const refreshBtn = document.getElementById('refreshButton');
 
-/* ================= DATA LISTENER ================= */
+/* ================= GAME DATA ================= */
 window.addEventListener('message', (event) => {
     if (event.data?.type === 'dataUpdate') {
         const notif = event.data.data?.notification;
@@ -124,51 +123,56 @@ window.addEventListener('message', (event) => {
             lastNotification = notif;
             const n = notif.toLowerCase();
             if (n.includes('boarding complete') && n.includes('push back')) {
+                console.log('🛫 Boarding complete → starting burst polling');
                 startBurstPolling();
             }
         }
     }
 });
 
-/* ================= WAYPOINT (FIXED) ================= */
+/* ================= WAYPOINT ================= */
 function setWaypoint(x, y) {
-    const payload = { type: "setWaypoint", x: Number(x), y: Number(y) };
-    console.log('Setting waypoint:', payload);
-    window.parent.postMessage(payload, "*");
+    window.parent.postMessage({
+        type: "setWaypoint",
+        x: Number(x),
+        y: Number(y)
+    }, "*");
 }
 
-/* ================= FETCH ================= */
+/* ================= FETCH & CHECK ================= */
 async function fetchAndSetWaypoint(key, vrpId, silent = false) {
     try {
-        const res = await fetch(API_URL, { headers: { 'X-Tycoon-Key': key } });
+        const res = await fetch(API_URL, {
+            headers: { 'X-Tycoon-Key': key }
+        });
         if (!res.ok) throw new Error('api');
 
         const data = await res.json();
-        let route = null;
-        let routeId = null;
 
-        for (const [id, r] of Object.entries(data)) {
-            if (r[3].toString() === vrpId.toString()) {
-                route = r;
-                routeId = id;
-                break;
-            }
-        }
+        for (const route of Object.values(data)) {
+            if (route[3].toString() === vrpId.toString()) {
+                const dest = route[1];
+                const destSig = `${dest.x}|${dest.y}|${dest.z}`;
 
-        if (route) {
-            const dest = route[1];
-            if (routeId !== lastRouteId) {
-                lastRouteId = routeId;
-                setWaypoint(dest.x, dest.y);
-                if (!silent) {
-                    statusEl.textContent = `Waypoint set: ${dest.name}`;
-                    statusEl.className = 'success';
+                if (destSig !== lastDestSig) {
+                    lastDestSig = destSig;
+
+                    console.log('🧭 Destination changed → updating waypoint');
+                    setWaypoint(dest.x, dest.y);
+
+                    if (!silent) {
+                        statusEl.textContent = `Waypoint: ${dest.name} (${dest.airport})`;
+                        statusEl.className = 'success';
+                    }
+
+                    if (isInBurstMode) stopBurstPolling();
                 }
-                if (isInBurstMode) stopBurstPolling();
+                return true;
             }
         }
+
         return true;
-    } catch {
+    } catch (e) {
         if (!silent) {
             statusEl.textContent = 'API error / invalid key';
             statusEl.className = 'error';
@@ -177,21 +181,27 @@ async function fetchAndSetWaypoint(key, vrpId, silent = false) {
     }
 }
 
-/* ================= BURST ================= */
+/* ================= BURST POLLING ================= */
 function startBurstPolling() {
     if (isInBurstMode) return;
-    isInBurstMode = true;
-    burstCount = 0;
 
     const key = localStorage.getItem(KEY_STORAGE);
     const vrp = localStorage.getItem(VRP_STORAGE);
     if (!key || !vrp) return;
 
+    isInBurstMode = true;
+    burstCount = 0;
+
     fetchAndSetWaypoint(key, vrp, true);
+
     burstTimer = setInterval(() => {
         burstCount++;
         fetchAndSetWaypoint(key, vrp, true);
-        if (burstCount >= MAX_BURST_CHECKS) stopBurstPolling();
+
+        if (burstCount >= MAX_BURST_CHECKS) {
+            console.log('⏱ Burst timeout reached');
+            stopBurstPolling();
+        }
     }, BURST_INTERVAL);
 }
 
@@ -199,6 +209,8 @@ function stopBurstPolling() {
     clearInterval(burstTimer);
     burstTimer = null;
     isInBurstMode = false;
+    burstCount = 0;
+    console.log('✅ Burst polling stopped');
 }
 
 /* ================= INIT ================= */
