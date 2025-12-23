@@ -63,18 +63,13 @@
             font-size: 15px;
             min-height: 22px;
         }
-        .error {
-            color: #ff5555;
-        }
-        .success {
-            color: #55ff99;
-        }
+        .error { color: #ff5555; }
+        .success { color: #55ff99; }
         .hint {
             margin-top: 20px;
             font-size: 13px;
             color: #aaa;
         }
-        /* Persistent re-set button (bottom-left, inspired by crate button) */
         #resetButton {
             position: fixed;
             bottom: 100px;
@@ -91,12 +86,8 @@
             align-items: center;
             justify-content: center;
         }
-        #resetButton:hover {
-            opacity: 1;
-        }
-        #resetButton span {
-            font-size: 20px;
-        }
+        #resetButton:hover { opacity: 1; }
+        #resetButton span { font-size: 20px; }
     </style>
 </head>
 <body>
@@ -117,7 +108,7 @@
 
     <!-- AUTO CACHE-BUST -->
     <script>
-        (function () {
+        (function() {
             const url = new URL(location.href);
             if (!url.searchParams.has("v")) {
                 url.searchParams.set("v", Date.now());
@@ -133,9 +124,9 @@
         const API_URL = 'https://tycoon-2epova.users.cfx.re/status/airline.json';
         const KEY_STORAGE = 'tycoonAutoApiKey';
         const VRP_STORAGE = 'tycoonVrpId';
-        const NOTIF_INTERVAL = 1500;   // Check notification every 1.5s (free)
-        const BURST_INTERVAL = 5000;   // 5s retries after notification (catches ~5s delay)
-        const MAX_BURST = 8;           // Up to 40s burst max
+        const NOTIF_INTERVAL = 1500; // 1.5s check for notification (free)
+        const BURST_INTERVAL = 5000; // 5s retries (matches ~5s delay)
+        const MAX_BURST = 8; // ~40s max burst
 
         let notifTimer = null;
         let burstTimer = null;
@@ -160,29 +151,42 @@
             window.postMessage(data, "*");
             if (window.parent !== window) window.parent.postMessage(data, "*");
 
-            console.log('Waypoint set:', data);
+            console.log('Waypoint set to:', xNum, yNum);
         }
 
         // ================================================================
-        // Fetch & get your route
+        // Fetch & process route
         // ================================================================
         async function fetchAirlineData(key) {
-            const res = await fetch(API_URL, { headers: { 'X-Tycoon-Key': key } });
-            if (!res.ok) throw new Error(res.status === 401 ? 'invalid_key' : 'api_error');
-            return await res.json();
+            try {
+                console.log('Starting fetch with key (partial):', key.substring(0, 10) + '...');
+                const res = await fetch(API_URL, {
+                    headers: {
+                        'X-Tycoon-Key': key,
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                    }
+                });
+                console.log('Fetch status:', res.status);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return await res.json();
+            } catch (err) {
+                console.error('Fetch error:', err.message);
+                throw err;
+            }
         }
 
         async function getYourRoute(data, vrpId) {
-            console.log('API response:', data);
+            console.log('Processing API data for vRP ID:', vrpId);
             for (const r of Object.values(data)) {
-                if (r[3].toString() === vrpId.toString()) return r;
+                if (r[3].toString() === vrpId.toString()) {
+                    console.log('Your route found:', r);
+                    return r;
+                }
             }
+            console.log('No matching route for vRP ID');
             return null;
         }
 
-        // ================================================================
-        // Update waypoint if destination changed
-        // ================================================================
         async function tryUpdateWaypoint(key, vrpId) {
             try {
                 const data = await fetchAirlineData(key);
@@ -194,54 +198,55 @@
                 const currX = parseFloat(dest.x);
                 const currY = parseFloat(dest.y);
 
-                // Only set if coords changed
                 if (lastDestX !== null && (currX !== lastDestX || currY !== lastDestY)) {
-                    console.log('New destination:', dest.name);
+                    console.log('Destination changed! New:', dest.name, currX, currY);
                     setWaypoint(currX, currY);
-                    statusEl.textContent = `Waypoint updated: ${dest.name} (${dest.airport}) ✓`;
+                    statusEl.textContent = `Waypoint: ${dest.name} (${dest.airport}) ✓`;
                     statusEl.className = 'success';
+                } else {
+                    console.log('No destination change');
                 }
 
-                // Update trackers
                 lastDestX = currX;
                 lastDestY = currY;
-
                 keyBox.style.display = 'none';
             } catch (err) {
-                console.error('Update failed:', err);
+                console.error('Update failed:', err.message);
+                statusEl.textContent = 'Update failed – check F8 console';
+                statusEl.className = 'error';
             }
         }
 
         // ================================================================
-        // Notification watcher + burst polling on match
+        // Notification watcher + burst
         // ================================================================
         function watchNotification(key, vrpId) {
             const currentNotif = window.notification || "";
             if (currentNotif !== lastNotification) {
-                console.log('New notification:', currentNotif);
+                console.log('Notification CHANGED:', currentNotif);
                 lastNotification = currentNotif;
 
                 const lower = currentNotif.toLowerCase();
                 if (lower.includes("boarding complete") || lower.includes("push back approved")) {
-                    console.log('Boarding complete / pushback detected! Starting burst...');
-                    statusEl.textContent = 'Boarding detected → checking for next leg...';
+                    console.log('MATCH! Boarding complete / push back detected!');
+                    statusEl.textContent = 'Boarding detected → checking next leg...';
                     statusEl.className = 'success';
 
-                    // Immediate fetch
                     tryUpdateWaypoint(key, vrpId);
 
-                    // Burst: retry every 5s, max 8 times (~40s)
                     let attempts = 0;
                     burstTimer = setInterval(() => {
                         attempts++;
                         console.log(`Burst retry ${attempts}/${MAX_BURST}`);
                         tryUpdateWaypoint(key, vrpId);
-
                         if (attempts >= MAX_BURST) {
                             clearInterval(burstTimer);
+                            console.log('Burst finished');
                             statusEl.textContent = '';
                         }
                     }, BURST_INTERVAL);
+                } else {
+                    console.log('Notification does NOT match boarding phrase');
                 }
             }
         }
@@ -249,6 +254,7 @@
         function startNotificationWatcher(key, vrpId) {
             if (notifTimer) clearInterval(notifTimer);
             notifTimer = setInterval(() => watchNotification(key, vrpId), NOTIF_INTERVAL);
+            console.log('Notification watcher ACTIVE');
         }
 
         // ================================================================
@@ -261,27 +267,31 @@
             if (!vrpId || !key) {
                 statusEl.textContent = !vrpId ? 'Enter vRP ID' : 'Enter API key';
                 statusEl.className = 'error';
+                console.log('Missing input');
                 return;
             }
 
             statusEl.textContent = 'Validating...';
             statusEl.className = '';
+            console.log('Starting validation');
 
-            // Initial check
             await tryUpdateWaypoint(key, vrpId);
 
             localStorage.setItem(KEY_STORAGE, key);
             localStorage.setItem(VRP_STORAGE, vrpId);
             startNotificationWatcher(key, vrpId);
             keyBox.style.display = 'none';
+            console.log('Setup complete');
         }
 
         // ================================================================
-        // Auto-run on load
+        // Auto-run
         // ================================================================
         async function autoRun() {
             const key = localStorage.getItem(KEY_STORAGE);
             const vrpId = localStorage.getItem(VRP_STORAGE);
+
+            console.log('Auto-run check - saved key/vrp:', !!key, vrpId);
 
             if (key && vrpId) {
                 vrpInput.value = vrpId;
@@ -290,6 +300,7 @@
                 startNotificationWatcher(key, vrpId);
             } else {
                 keyBox.style.display = 'block';
+                console.log('No saved data - showing key box');
             }
         }
 
@@ -300,6 +311,7 @@
             if (e.key === "Escape") {
                 window.parent.postMessage({ type: "pin" }, "*");
                 e.preventDefault();
+                console.log('ESC - pinning');
             }
         });
 
@@ -312,19 +324,20 @@
             });
         });
 
-        // Re-set button
-        document.getElementById('resetButton').addEventListener('click', () => {
+        resetBtn.addEventListener('click', () => {
             const key = localStorage.getItem(KEY_STORAGE);
             const vrpId = localStorage.getItem(VRP_STORAGE);
             if (key && vrpId) {
+                console.log('Reset button clicked');
                 tryUpdateWaypoint(key, vrpId);
-                statusEl.textContent = 'Waypoint re-set manually ✓';
+                statusEl.textContent = 'Re-set manually ✓';
                 statusEl.className = 'success';
             }
         });
 
-        // Request initial cached notification on load
+        // Request initial cached notification
         window.parent.postMessage({ type: "getNamedData", keys: ["notification"] }, "*");
+        console.log('Requested cached notification');
 
         autoRun();
     </script>
