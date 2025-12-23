@@ -48,7 +48,7 @@
         button {
             padding: 12px 24px;
             font-size: 17px;
-            margin-left: 12px;
+            margin: 5px;
             background: #007bff;
             color: white;
             border: none;
@@ -70,24 +70,29 @@
             font-size: 13px;
             color: #aaa;
         }
-        #resetButton {
+        #refreshButton {
             position: fixed;
-            bottom: 100px;
-            left: 20px;
-            width: 40px;
-            height: 40px;
+            bottom: 20px;
+            right: 20px;
+            width: 50px;
+            height: 50px;
             cursor: pointer;
             z-index: 9999;
-            opacity: 0.6;
+            opacity: 0.7;
             transition: opacity 0.3s;
             background: #28a745;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
+            font-size: 24px;
+            border: 2px solid #1e7e34;
         }
-        #resetButton:hover { opacity: 1; }
-        #resetButton span { font-size: 20px; }
+        #refreshButton:hover { 
+            opacity: 1;
+            transform: scale(1.1);
+            transition: all 0.2s;
+        }
     </style>
 </head>
 <body>
@@ -101,18 +106,18 @@
         <div class="hint">Press ESC to pin/minimize • Enter to save</div>
     </div>
 
-    <!-- Persistent re-set button -->
-    <div id="resetButton" title="Re-set current waypoint">
-        <span>✈️</span>
+    <!-- Manual refresh button -->
+    <div id="refreshButton" title="Refresh waypoint now">
+        ✈️
     </div>
 
     <!-- AUTO CACHE-BUST -->
     <script>
         (function() {
-            const url = new URL(window.location.href);
-            if (!url.searchParams.has('v')) {
-                url.searchParams.set('v', Date.now());
-                window.location.replace(url.toString());
+            const url = new URL(location.href);
+            if (!url.searchParams.has("v")) {
+                url.searchParams.set("v", Date.now());
+                location.replace(url);
             }
         })();
     </script>
@@ -124,157 +129,206 @@
         const API_URL = 'https://tycoon-2epova.users.cfx.re/status/airline.json';
         const KEY_STORAGE = 'tycoonAutoApiKey';
         const VRP_STORAGE = 'tycoonVrpId';
-        const BURST_INTERVAL = 5000;   // Poll every 5s after trigger
-        const MAX_BURST = 10;          // Up to 50s max burst (adjust if needed)
+        const BURST_INTERVAL = 3000;
+        const MAX_BURST_CHECKS = 20; // Max 60 seconds of checking
 
         let burstTimer = null;
-        let lastNotification = "";
-        let lastDestX = null;
-        let lastDestY = null;
-        let isPolling = false;
+        let burstCount = 0;
+        let lastRouteId = null;
+        let lastNotification = '';
+        let isInBurstMode = false;
 
         const keyBox = document.getElementById('keyBox');
         const statusEl = document.getElementById('status');
         const keyInput = document.getElementById('apiKey');
         const vrpInput = document.getElementById('vrpId');
-        const resetBtn = document.getElementById('resetButton');
+        const refreshBtn = document.getElementById('refreshButton');
+
+        // ================================================================
+        // LISTEN TO GAME DATA
+        // ================================================================
+        window.addEventListener('message', (event) => {
+            if (event.data && event.data.type === 'dataUpdate') {
+                const data = event.data.data;
+                
+                // Check for notification updates
+                if (data.notification && data.notification !== lastNotification) {
+                    lastNotification = data.notification;
+                    console.log('Notification received:', data.notification);
+                    
+                    // Check if it's the boarding notification
+                    const notifLower = data.notification.toLowerCase();
+                    if (notifLower.includes('boarding complete') && notifLower.includes('push back')) {
+                        console.log('🛫 BOARDING COMPLETE DETECTED! Starting burst polling...');
+                        startBurstPolling();
+                    }
+                }
+            }
+        });
 
         // ================================================================
         // HELPERS
         // ================================================================
-        function setWaypoint(x, y) {
-            const xNum = parseFloat(x);
-            const yNum = parseFloat(y);
-            const data = { type: "setWaypoint", x: xNum, y: yNum };
-
-            window.postMessage(data, "*");
-            if (window.parent !== window) window.parent.postMessage(data, "*");
-
-            console.log('Waypoint set to:', xNum, yNum);
+        function setWaypoint(x, y, z) {
+            const waypointData = {
+                type: "setWaypoint",
+                x: parseFloat(x),
+                y: parseFloat(y),
+                z: parseFloat(z)
+            };
+            
+            window.postMessage(waypointData, "*");
+            if (window.parent !== window) {
+                window.parent.postMessage(waypointData, "*");
+            }
+            
+            console.log('Waypoint set:', waypointData);
         }
 
         // ================================================================
-        // Fetch & process
+        // FETCH & UPDATE WAYPOINT
         // ================================================================
-        async function fetchAirlineData(key) {
+        async function fetchAndSetWaypoint(key, vrpId, isSilent = false) {
             try {
-                console.log('Fetch started');
-                const res = await fetch(API_URL, {
-                    headers: {
-                        'X-Tycoon-Key': key,
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                    }
+                const response = await fetch(API_URL, {
+                    headers: { 'X-Tycoon-Key': key }
                 });
-                console.log('Fetch status:', res.status);
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                return await res.json();
-            } catch (err) {
-                console.error('Fetch error:', err.message);
-                throw err;
-            }
-        }
 
-        async function getYourRoute(data, vrpId) {
-            console.log('Processing data for vRP ID:', vrpId);
-            for (const r of Object.values(data)) {
-                if (r[3].toString() === vrpId.toString()) {
-                    console.log('Your route found:', r);
-                    return r;
+                if (!response.ok) {
+                    throw new Error(response.status === 401 ? 'invalid_key' : 'api_error');
                 }
-            }
-            console.log('No route found');
-            return null;
-        }
 
-        async function tryUpdateWaypoint(key, vrpId) {
-            try {
-                const data = await fetchAirlineData(key);
-                const route = await getYourRoute(data, vrpId);
+                const data = await response.json();
+                
+                // Filter to your route
+                let yourRoute = null;
+                let routeId = null;
+                for (const [routeNum, routeData] of Object.entries(data)) {
+                    if (routeData[3].toString() === vrpId.toString()) {
+                        yourRoute = routeData;
+                        routeId = routeNum;
+                        break;
+                    }
+                }
 
-                if (!route) return;
-
-                const dest = route[1];
-                const currX = parseFloat(dest.x);
-                const currY = parseFloat(dest.y);
-
-                if (lastDestX !== null && (currX !== lastDestX || currY !== lastDestY)) {
-                    console.log('New destination detected:', dest.name, currX, currY);
-                    setWaypoint(currX, currY);
-                    statusEl.textContent = `Waypoint updated: ${dest.name} (${dest.airport}) ✓`;
-                    statusEl.className = 'success';
-
-                    // Stop burst polling once we detect the change
-                    if (burstTimer) {
-                        clearInterval(burstTimer);
-                        burstTimer = null;
-                        isPolling = false;
-                        console.log('Change detected - stopping burst polling');
+                if (yourRoute) {
+                    const dest = yourRoute[1];
+                    
+                    // Check if route changed
+                    if (routeId !== lastRouteId) {
+                        setWaypoint(dest.x, dest.y, dest.z);
+                        lastRouteId = routeId;
+                        
+                        console.log('✓ NEW ROUTE DETECTED:', routeId, dest.name);
+                        
+                        if (!isSilent) {
+                            statusEl.textContent = `Waypoint: ${dest.name} (${dest.airport}) ✓`;
+                            statusEl.className = 'success';
+                        }
+                        
+                        // Flash button
+                        refreshBtn.style.background = '#00ff00';
+                        setTimeout(() => {
+                            refreshBtn.style.background = '#28a745';
+                        }, 500);
+                        
+                        // STOP burst mode - we found the new route!
+                        if (isInBurstMode) {
+                            console.log('Route changed - stopping all polling');
+                            stopBurstPolling();
+                        }
+                        
+                        return true; // Signal that route changed
+                    } else if (!isSilent) {
+                        console.log('Same route, no change');
                     }
                 } else {
-                    console.log('No destination change yet');
-                }
-
-                lastDestX = currX;
-                lastDestY = currY;
-                keyBox.style.display = 'none';
-            } catch (err) {
-                console.error('Update failed:', err.message);
-                statusEl.textContent = 'Update failed – check F8';
-                statusEl.className = 'error';
-            }
-        }
-
-        // ================================================================
-        // Notification watcher + burst on match
-        // ================================================================
-        function watchNotification(key, vrpId) {
-            const currentNotif = window.notification || "";
-            if (currentNotif !== lastNotification) {
-                console.log('New notification:', currentNotif);
-                lastNotification = currentNotif;
-
-                const lower = currentNotif.toLowerCase();
-                if (lower.includes("boarding complete") && lower.includes("push back approved")) {
-                    console.log('Boarding complete detected! Starting burst polling...');
-                    statusEl.textContent = 'Boarding detected → checking for next leg...';
-                    statusEl.className = 'success';
-
-                    // Immediate fetch
-                    tryUpdateWaypoint(key, vrpId);
-
-                    // Start burst polling only if not already running
-                    if (!isPolling) {
-                        isPolling = true;
-                        let attempts = 0;
-                        burstTimer = setInterval(() => {
-                            attempts++;
-                            console.log(`Burst poll ${attempts}/${MAX_BURST}`);
-                            tryUpdateWaypoint(key, vrpId);
-
-                            if (attempts >= MAX_BURST || !isPolling) {
-                                clearInterval(burstTimer);
-                                isPolling = false;
-                                console.log('Burst polling stopped');
-                                statusEl.textContent = '';
-                            }
-                        }, BURST_INTERVAL);
+                    lastRouteId = null;
+                    if (!isSilent) {
+                        statusEl.textContent = 'No active airline route';
+                        statusEl.className = '';
                     }
                 }
+
+                if (!isSilent) {
+                    keyBox.style.display = 'none';
+                }
+                return true;
+
+            } catch (err) {
+                console.error('Fetch error:', err);
+                if (!isSilent) {
+                    statusEl.className = 'error';
+                    statusEl.textContent = err.message === 'invalid_key' ? 'Invalid API key' : 'API error';
+                }
+                return false;
             }
         }
 
-        function startNotificationWatcher(key, vrpId) {
-            setInterval(() => watchNotification(key, vrpId), 1500);
-            console.log('Notification watcher started');
+        // ================================================================
+        // BURST POLLING (after boarding notification)
+        // Only checks until waypoint changes, then stops
+        // ================================================================
+        function startBurstPolling() {
+            if (isInBurstMode) {
+                console.log('Already in burst mode, skipping');
+                return;
+            }
+            
+            isInBurstMode = true;
+            burstCount = 0;
+            
+            const key = localStorage.getItem(KEY_STORAGE);
+            const vrpId = localStorage.getItem(VRP_STORAGE);
+            
+            if (!key || !vrpId) return;
+            
+            console.log('Starting burst polling - will stop when waypoint changes');
+            
+            // Immediate check
+            fetchAndSetWaypoint(key, vrpId, true);
+            
+            // Then check every 3 seconds until route changes or max attempts
+            burstTimer = setInterval(() => {
+                burstCount++;
+                console.log(`Burst check ${burstCount}/${MAX_BURST_CHECKS}`);
+                
+                fetchAndSetWaypoint(key, vrpId, true);
+                
+                // Stop if max attempts reached (safety)
+                if (burstCount >= MAX_BURST_CHECKS) {
+                    console.log('Max burst checks reached - stopping');
+                    stopBurstPolling();
+                }
+                // Note: also stops automatically when route changes (in fetchAndSetWaypoint)
+            }, BURST_INTERVAL);
+            
+            refreshBtn.style.background = '#ffa500'; // Orange during burst
+        }
+
+        function stopBurstPolling() {
+            if (burstTimer) {
+                clearInterval(burstTimer);
+                burstTimer = null;
+            }
+            isInBurstMode = false;
+            burstCount = 0;
+            refreshBtn.style.background = '#28a745';
+            console.log('✓ Burst polling stopped - waiting for next boarding notification');
         }
 
         // ================================================================
-        // Save & initial run
+        // NORMAL AUTO-REFRESH - REMOVED
+        // Now only checks after boarding notification (burst mode)
+        // ================================================================
+
+        // ================================================================
+        // SAVE & INITIAL RUN
         // ================================================================
         async function trySaveAndRun() {
             const key = keyInput.value.trim();
             const vrpId = vrpInput.value.trim();
-
+            
             if (!vrpId || !key) {
                 statusEl.textContent = !vrpId ? 'Enter vRP ID' : 'Enter API key';
                 statusEl.className = 'error';
@@ -284,16 +338,15 @@
             statusEl.textContent = 'Validating...';
             statusEl.className = '';
 
-            await tryUpdateWaypoint(key, vrpId);
-
-            localStorage.setItem(KEY_STORAGE, key);
-            localStorage.setItem(VRP_STORAGE, vrpId);
-            startNotificationWatcher(key, vrpId);
-            keyBox.style.display = 'none';
+            if (await fetchAndSetWaypoint(key, vrpId, false)) {
+                localStorage.setItem(KEY_STORAGE, key);
+                localStorage.setItem(VRP_STORAGE, vrpId);
+                console.log('Initial setup complete - waiting for boarding notifications');
+            }
         }
 
         // ================================================================
-        // Auto-run
+        // AUTO-RUN ON LOAD
         // ================================================================
         async function autoRun() {
             const key = localStorage.getItem(KEY_STORAGE);
@@ -302,15 +355,22 @@
             if (key && vrpId) {
                 vrpInput.value = vrpId;
                 keyInput.value = key;
-                await tryUpdateWaypoint(key, vrpId);
-                startNotificationWatcher(key, vrpId);
+                
+                const success = await fetchAndSetWaypoint(key, vrpId, false);
+                if (success) {
+                    console.log('App loaded - listening for boarding notifications');
+                } else {
+                    keyBox.style.display = 'block';
+                    statusEl.textContent = 'Saved credentials invalid';
+                    statusEl.className = 'error';
+                }
             } else {
                 keyBox.style.display = 'block';
             }
         }
 
         // ================================================================
-        // EVENTS
+        // EVENT LISTENERS
         // ================================================================
         window.addEventListener('keydown', e => {
             if (e.key === "Escape") {
@@ -328,23 +388,22 @@
             });
         });
 
-        resetBtn.addEventListener('click', () => {
+        refreshBtn.addEventListener('click', () => {
             const key = localStorage.getItem(KEY_STORAGE);
             const vrpId = localStorage.getItem(VRP_STORAGE);
             if (key && vrpId) {
-                tryUpdateWaypoint(key, vrpId);
-                statusEl.textContent = 'Re-set manually ✓';
-                statusEl.className = 'success';
+                console.log('Manual refresh triggered');
+                fetchAndSetWaypoint(key, vrpId, false);
             }
         });
 
-                // Request initial cached data
-
+        // ================================================================
+        // REQUEST INITIAL DATA
+        // ================================================================
         window.parent.postMessage({ type: "getData" }, "*");
+        console.log('Requested initial game data');
 
-        console.log('Requested full cached data on load');
-
-
+        // Start the app
         autoRun();
     </script>
 </body>
