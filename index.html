@@ -28,30 +28,25 @@
             display: none;
             z-index: 9999;
         }
-        h2 {
-            margin: 0 0 18px;
-            font-size: 21px;
-            color: #4da6ff;
-        }
+        h2 { margin-bottom: 18px; color: #4da6ff; }
         input {
             padding: 12px;
             width: 280px;
             font-size: 17px;
-            border: 1px solid #666;
             border-radius: 6px;
             background: #111;
             color: #fff;
+            border: 1px solid #666;
             display: block;
             margin: 0 auto 10px;
         }
         button {
             padding: 12px 24px;
             font-size: 17px;
-            margin: 5px;
             background: #007bff;
-            color: white;
-            border: none;
+            color: #fff;
             border-radius: 6px;
+            border: none;
             cursor: pointer;
         }
         #status { margin-top: 15px; min-height: 22px; }
@@ -63,18 +58,33 @@
             right: 20px;
             width: 50px;
             height: 50px;
-            cursor: pointer;
-            z-index: 9999;
-            background: #28a745;
             border-radius: 50%;
+            background: #28a745;
+            font-size: 24px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 24px;
+            cursor: pointer;
+            z-index: 9999;
         }
     </style>
 </head>
 <body>
+
+<!-- AUTO CACHE-BUST (one-time, User App safe) -->
+<script>
+(function () {
+    try {
+        const url = new URL(window.location.href);
+        if (!url.searchParams.has("v")) {
+            url.searchParams.set("v", Date.now().toString());
+            window.location.replace(url.toString());
+        }
+    } catch (e) {
+        console.warn("Cache bust skipped:", e);
+    }
+})();
+</script>
 
 <div id="keyBox">
     <h2>Initial Setup (one-time)</h2>
@@ -122,11 +132,7 @@ window.addEventListener('message', (event) => {
 
 /* ================= WAYPOINT (FIXED) ================= */
 function setWaypoint(x, y) {
-    const payload = {
-        type: "setWaypoint",
-        x: Number(x),
-        y: Number(y)
-    };
+    const payload = { type: "setWaypoint", x: Number(x), y: Number(y) };
     console.log('Setting waypoint:', payload);
     window.parent.postMessage(payload, "*");
 }
@@ -134,9 +140,7 @@ function setWaypoint(x, y) {
 /* ================= FETCH ================= */
 async function fetchAndSetWaypoint(key, vrpId, silent = false) {
     try {
-        const res = await fetch(API_URL, {
-            headers: { 'X-Tycoon-Key': key }
-        });
+        const res = await fetch(API_URL, { headers: { 'X-Tycoon-Key': key } });
         if (!res.ok) throw new Error('api');
 
         const data = await res.json();
@@ -156,7 +160,6 @@ async function fetchAndSetWaypoint(key, vrpId, silent = false) {
             if (routeId !== lastRouteId) {
                 lastRouteId = routeId;
                 setWaypoint(dest.x, dest.y);
-
                 if (!silent) {
                     statusEl.textContent = `Waypoint set: ${dest.name}`;
                     statusEl.className = 'success';
