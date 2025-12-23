@@ -98,17 +98,18 @@
         // ================================================================
         // CONFIG & GLOBALS
         // ================================================================
-        const API_URL        = 'https://tycoon-2epova.users.cfx.re/status/airline.json';
-        const KEY_STORAGE    = 'tycoonAutoApiKey';
-        const VRP_STORAGE    = 'tycoonVrpId';
-        const POLL_INTERVAL  = 15000; // 15s backup poll
-        const NOTIF_INTERVAL = 2000;  // 2s notification check (less aggressive)
+        const API_URL          = 'https://tycoon-2epova.users.cfx.re/status/airline.json';
+        const KEY_STORAGE      = 'tycoonAutoApiKey';
+        const VRP_STORAGE      = 'tycoonVrpId';
+        const NOTIF_INTERVAL   = 1500;   // Check notification every 1.5s (free)
+        const BURST_INTERVAL   = 5000;   // 5s retries after notification (catches ~5s delay)
+        const MAX_BURST        = 8;      // Up to 40s burst max (adjust if needed)
 
-        let pollTimer  = null;
-        let notifTimer = null;
-        let lastNotification = "";
-        let lastSetX = null;
-        let lastSetY = null; // ← New: prevent repeat sets to same coords
+        let notifTimer         = null;
+        let burstTimer         = null;
+        let lastNotification   = "";
+        let lastDestX          = null;
+        let lastDestY          = null;
 
         const keyBox   = document.getElementById('keyBox');
         const statusEl = document.getElementById('status');
@@ -121,111 +122,100 @@
         function setWaypoint(x, y) {
             const xNum = parseFloat(x);
             const yNum = parseFloat(y);
+            const data = { type: "setWaypoint", x: xNum, y: yNum };
 
-            // Only set if coords actually changed
-            if (lastSetX === xNum && lastSetY === yNum) {
-                console.log('Same waypoint coords – skipping redundant set');
-                return false;
-            }
+            window.postMessage(data, "*");
+            if (window.parent !== window) window.parent.postMessage(data, "*");
 
-            const waypointData = { type: "setWaypoint", x: xNum, y: yNum };
-
-            window.postMessage(waypointData, "*");
-            if (window.parent !== window) window.parent.postMessage(waypointData, "*");
-
-            lastSetX = xNum;
-            lastSetY = yNum;
-
-            console.log('Waypoint set (new coords):', waypointData);
-            return true;
+            console.log('Waypoint set:', data);
         }
 
         // ================================================================
-        // Fetch & process airline data
+        // Fetch & get your route
         // ================================================================
         async function fetchAirlineData(key) {
-            const response = await fetch(API_URL, { headers: { 'X-Tycoon-Key': key } });
-            if (!response.ok) throw new Error(response.status === 401 ? 'invalid_key' : 'api_error');
-            return await response.json();
+            const res = await fetch(API_URL, { headers: { 'X-Tycoon-Key': key } });
+            if (!res.ok) throw new Error(res.status === 401 ? 'invalid_key' : 'api_error');
+            return await res.json();
         }
 
-        async function processAirlineData(data, vrpId) {
-            console.log('Full API response:', data);
-            let yourRoute = null;
-            for (const [routeNum, routeData] of Object.entries(data)) {
-                const routeVrpId = routeData[3];
-                console.log(`Route ${routeNum} vRP ID:`, routeVrpId, 'Match:', routeVrpId.toString() === vrpId.toString());
-                if (routeVrpId.toString() === vrpId.toString()) {
-                    yourRoute = routeData;
-                    console.log('Found your route!', yourRoute);
-                    break;
-                }
+        async function getYourRoute(data, vrpId) {
+            console.log('API response:', data);
+            for (const r of Object.values(data)) {
+                if (r[3].toString() === vrpId.toString()) return r;
             }
-            return yourRoute;
+            return null;
         }
 
         // ================================================================
-        // Core update logic
+        // Update waypoint if destination changed
         // ================================================================
-        async function updateWaypoint(key, vrpId, isInitial = false) {
+        async function tryUpdateWaypoint(key, vrpId) {
             try {
                 const data = await fetchAirlineData(key);
-                const yourRoute = await processAirlineData(data, vrpId);
+                const route = await getYourRoute(data, vrpId);
 
-                if (!yourRoute) {
-                    statusEl.textContent = 'You have no active airline route';
-                    statusEl.className = '';
-                    return;
-                }
+                if (!route) return;
 
-                const dest = yourRoute[1];
-                const wasSet = setWaypoint(dest.x, dest.y); // ← only sets if changed
+                const dest = route[1];
+                const currX = parseFloat(dest.x);
+                const currY = parseFloat(dest.y);
 
-                if (wasSet) {
-                    const msg = isInitial ? `Waypoint set to ${dest.name} (${dest.airport}) ✓` 
-                                           : `Waypoint updated to ${dest.name} (${dest.airport}) ✓`;
-                    statusEl.textContent = msg;
+                // Only set if coords changed
+                if (lastDestX !== null && (currX !== lastDestX || currY !== lastDestY)) {
+                    console.log('New destination detected:', dest.name);
+                    setWaypoint(currX, currY);
+                    statusEl.textContent = `Waypoint updated: ${dest.name} (${dest.airport}) ✓`;
                     statusEl.className = 'success';
-
-                    // Optional: auto-clear status after 5 seconds
-                    // setTimeout(() => { if (statusEl.textContent === msg) statusEl.textContent = ''; }, 5000);
                 }
+
+                // Update trackers
+                lastDestX = currX;
+                lastDestY = currY;
 
                 keyBox.style.display = 'none';
             } catch (err) {
-                statusEl.className = 'error';
-                statusEl.textContent = err.message === 'invalid_key' ? 'Invalid API key' : 'API error (check charges/key)';
+                console.error('Update failed:', err);
             }
         }
 
         // ================================================================
-        // Notification watcher
+        // Notification watcher + burst polling on match
         // ================================================================
-        function watchNotifications(key, vrpId) {
+        function watchNotification(key, vrpId) {
             const currentNotif = window.notification || "";
             if (currentNotif !== lastNotification) {
-                console.log('New notification detected:', currentNotif);
-                if (currentNotif.includes("Boarding complete") || currentNotif.includes("Push back approved")) {
-                    console.log('Boarding/Pushback complete detected!');
-                    statusEl.textContent = 'Boarding complete detected → updating waypoint...';
-                    statusEl.className = 'success';
-                    updateWaypoint(key, vrpId, false);
-                }
+                console.log('New notification:', currentNotif);
                 lastNotification = currentNotif;
+
+                const lower = currentNotif.toLowerCase();
+                if (lower.includes("boarding complete") || lower.includes("push back approved")) {
+                    console.log('Boarding complete / pushback detected! Starting burst...');
+                    statusEl.textContent = 'Boarding detected → checking for next leg...';
+                    statusEl.className = 'success';
+
+                    // Immediate fetch
+                    tryUpdateWaypoint(key, vrpId);
+
+                    // Burst: retry every 5s, max 8 times (~40s)
+                    let attempts = 0;
+                    burstTimer = setInterval(() => {
+                        attempts++;
+                        console.log(`Burst retry ${attempts}/${MAX_BURST}`);
+                        tryUpdateWaypoint(key, vrpId);
+
+                        if (attempts >= MAX_BURST) {
+                            clearInterval(burstTimer);
+                            statusEl.textContent = '';
+                        }
+                    }, BURST_INTERVAL);
+                }
             }
         }
 
         function startNotificationWatcher(key, vrpId) {
             if (notifTimer) clearInterval(notifTimer);
-            notifTimer = setInterval(() => watchNotifications(key, vrpId), NOTIF_INTERVAL);
-        }
-
-        // ================================================================
-        // Polling backup
-        // ================================================================
-        function startPolling(key, vrpId) {
-            if (pollTimer) clearInterval(pollTimer);
-            pollTimer = setInterval(() => updateWaypoint(key, vrpId, false), POLL_INTERVAL);
+            notifTimer = setInterval(() => watchNotification(key, vrpId), NOTIF_INTERVAL);
         }
 
         // ================================================================
@@ -235,45 +225,36 @@
             const key   = keyInput.value.trim();
             const vrpId = vrpInput.value.trim();
 
-            if (!vrpId) { statusEl.textContent = 'Enter your vRP ID'; statusEl.className = 'error'; return; }
-            if (!key)   { statusEl.textContent = 'Enter your API key'; statusEl.className = 'error'; return; }
+            if (!vrpId || !key) {
+                statusEl.textContent = !vrpId ? 'Enter vRP ID' : 'Enter API key';
+                statusEl.className = 'error';
+                return;
+            }
 
             statusEl.textContent = 'Validating...';
             statusEl.className = '';
 
-            try {
-                const data = await fetchAirlineData(key);
-                const yourRoute = await processAirlineData(data, vrpId);
+            // Initial check
+            await tryUpdateWaypoint(key, vrpId);
 
-                if (yourRoute) {
-                    await updateWaypoint(key, vrpId, true);
-                    localStorage.setItem(KEY_STORAGE, key);
-                    localStorage.setItem(VRP_STORAGE, vrpId);
-                    startPolling(key, vrpId);
-                    startNotificationWatcher(key, vrpId);
-                } else {
-                    statusEl.textContent = 'No active route – check if on job';
-                    statusEl.className = 'error';
-                }
-            } catch (err) {
-                statusEl.className = 'error';
-                statusEl.textContent = err.message === 'invalid_key' ? 'Invalid API key' : 'API error (check charges/key)';
-            }
+            localStorage.setItem(KEY_STORAGE, key);
+            localStorage.setItem(VRP_STORAGE, vrpId);
+            startNotificationWatcher(key, vrpId);
+            keyBox.style.display = 'none';
         }
 
         // ================================================================
         // Auto-run on load
         // ================================================================
         async function autoRun() {
-            const savedKey   = localStorage.getItem(KEY_STORAGE);
-            const savedVrpId = localStorage.getItem(VRP_STORAGE);
+            const key   = localStorage.getItem(KEY_STORAGE);
+            const vrpId = localStorage.getItem(VRP_STORAGE);
 
-            if (savedKey && savedVrpId) {
-                vrpInput.value = savedVrpId;
-                keyInput.value = savedKey;
-                await updateWaypoint(savedKey, savedVrpId, true);
-                startPolling(savedKey, savedVrpId);
-                startNotificationWatcher(savedKey, savedVrpId);
+            if (key && vrpId) {
+                vrpInput.value = vrpId;
+                keyInput.value = key;
+                await tryUpdateWaypoint(key, vrpId);
+                startNotificationWatcher(key, vrpId);
             } else {
                 keyBox.style.display = 'block';
             }
@@ -289,18 +270,13 @@
             }
         });
 
-        keyInput.addEventListener('keydown', e => {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                trySaveAndRun();
-            }
-        });
-
-        vrpInput.addEventListener('keydown', e => {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                trySaveAndRun();
-            }
+        [keyInput, vrpInput].forEach(input => {
+            input.addEventListener('keydown', e => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    trySaveAndRun();
+                }
+            });
         });
 
         autoRun();
