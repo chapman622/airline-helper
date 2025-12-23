@@ -5,86 +5,27 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Auto Airline WP</title>
     <style>
-        body {
-            background: transparent;
-            color: #fff;
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            overflow: hidden;
-        }
+        body { background: transparent; color: #fff; font-family: Arial, sans-serif; margin: 0; padding: 0; overflow: hidden; }
         #keyBox {
-            position: absolute;
-            top: 40%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(0, 0, 0, 0.85);
-            padding: 25px 35px;
-            border-radius: 12px;
-            border: 1px solid #555;
-            box-shadow: 0 0 25px rgba(0, 0, 0, 0.9);
-            text-align: center;
-            min-width: 400px;
-            display: none;
-            z-index: 9999;
+            position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.85); padding: 25px 35px; border-radius: 12px;
+            border: 1px solid #555; box-shadow: 0 0 25px rgba(0,0,0,0.9);
+            text-align: center; min-width: 400px; display: none; z-index: 9999;
         }
-        h2 {
-            margin: 0 0 18px;
-            font-size: 21px;
-            color: #4da6ff;
+        h2 { margin: 0 0 18px; font-size: 21px; color: #4da6ff; }
+        input[type="password"], input[type="text"] {
+            padding: 12px; width: 280px; font-size: 17px; border: 1px solid #666;
+            border-radius: 6px; background: #111; color: #fff; display: block; margin: 0 auto 10px;
         }
-        input[type="password"],
-        input[type="text"] {
-            padding: 12px;
-            width: 280px;
-            font-size: 17px;
-            border: 1px solid #666;
-            border-radius: 6px;
-            background: #111;
-            color: #fff;
-            display: block;
-            margin: 0 auto 10px;
-        }
-        button {
-            padding: 12px 24px;
-            font-size: 17px;
-            margin-left: 12px;
-            background: #007bff;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-        }
-        button:hover {
-            background: #0056b3;
-        }
-        #status {
-            margin-top: 15px;
-            font-size: 15px;
-            min-height: 22px;
-        }
-        .error { color: #ff5555; }
-        .success { color: #55ff99; }
-        .hint {
-            margin-top: 20px;
-            font-size: 13px;
-            color: #aaa;
-        }
+        button { padding: 12px 24px; font-size: 17px; margin-left: 12px; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        #status { margin-top: 15px; font-size: 15px; min-height: 22px; }
+        .error { color: #ff5555; } .success { color: #55ff99; }
+        .hint { margin-top: 20px; font-size: 13px; color: #aaa; }
         #resetButton {
-            position: fixed;
-            bottom: 100px;
-            left: 20px;
-            width: 40px;
-            height: 40px;
-            cursor: pointer;
-            z-index: 9999;
-            opacity: 0.6;
-            transition: opacity 0.3s;
-            background: #28a745;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            position: fixed; bottom: 100px; left: 20px; width: 40px; height: 40px;
+            cursor: pointer; z-index: 9999; opacity: 0.6; transition: opacity 0.3s;
+            background: #28a745; border-radius: 50%; display: flex; align-items: center; justify-content: center;
         }
         #resetButton:hover { opacity: 1; }
         #resetButton span { font-size: 20px; }
@@ -109,10 +50,10 @@
     <!-- AUTO CACHE-BUST -->
     <script>
         (function() {
-            const url = new URL(location.href);
+            const url = new URL(window.location.href);
             if (!url.searchParams.has("v")) {
                 url.searchParams.set("v", Date.now());
-                location.replace(url);
+                window.location.replace(url.toString());
             }
         })();
     </script>
@@ -124,13 +65,7 @@
         const API_URL = 'https://tycoon-2epova.users.cfx.re/status/airline.json';
         const KEY_STORAGE = 'tycoonAutoApiKey';
         const VRP_STORAGE = 'tycoonVrpId';
-        const NOTIF_INTERVAL = 1500;   // Check every 1.5s (free)
-        const BURST_INTERVAL = 5000;   // 5s retries (matches ~5s delay)
-        const MAX_BURST = 8;           // ~40s max burst
 
-        let notifTimer = null;
-        let burstTimer = null;
-        let lastNotification = "";
         let lastDestX = null;
         let lastDestY = null;
 
@@ -148,25 +83,24 @@
             const yNum = parseFloat(y);
             const data = { type: "setWaypoint", x: xNum, y: yNum };
 
-            window.postMessage(data, "*");
-            if (window.parent !== window) window.parent.postMessage(data, "*");
+            window.parent.postMessage(data, "*");
 
             console.log('Waypoint set to:', xNum, yNum);
         }
 
         // ================================================================
-        // Fetch & process
+        // Fetch & process airline data
         // ================================================================
         async function fetchAirlineData(key) {
             try {
-                console.log('Fetch started (key partial):', key.substring(0, 10) + '...');
+                console.log('Fetching airline.json...');
                 const res = await fetch(API_URL, {
                     headers: {
                         'X-Tycoon-Key': key,
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
                     }
                 });
-                console.log('Fetch status code:', res.status);
+                console.log('Fetch status:', res.status);
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 return await res.json();
             } catch (err) {
@@ -183,7 +117,7 @@
                     return r;
                 }
             }
-            console.log('No matching route found');
+            console.log('No route found');
             return null;
         }
 
@@ -192,10 +126,7 @@
                 const data = await fetchAirlineData(key);
                 const route = await getYourRoute(data, vrpId);
 
-                if (!route) {
-                    console.log('No active route for vRP ID');
-                    return;
-                }
+                if (!route) return;
 
                 const dest = route[1];
                 const currX = parseFloat(dest.x);
@@ -207,7 +138,7 @@
                     statusEl.textContent = `Waypoint updated: ${dest.name} (${dest.airport}) ✓`;
                     statusEl.className = 'success';
                 } else {
-                    console.log('No destination change detected');
+                    console.log('No destination change');
                 }
 
                 lastDestX = currX;
@@ -221,47 +152,30 @@
         }
 
         // ================================================================
-        // Notification watcher + burst
+        // Message listener (from example)
         // ================================================================
-        function watchNotification(key, vrpId) {
-            const currentNotif = window.notification || "";
-            if (currentNotif !== lastNotification) {
-                console.log('NOTIFICATION CHANGED:', currentNotif);
-                lastNotification = currentNotif;
+        window.addEventListener("message", (event) => {
+            const data = event.data?.data || event.data || {};
+            console.log('Received message:', data);
 
-                const lower = currentNotif.toLowerCase();
-                // Match your exact multi-line text (handles \n or spaces)
-                if (lower.includes("boarding complete") && lower.includes("push back approved")) {
-                    console.log('EXACT MATCH! Boarding complete + Push back approved detected!');
-                    statusEl.textContent = 'Boarding complete detected → checking next leg...';
+            // Check for notification changes
+            if (data.notification) {
+                const text = data.notification;
+                console.log('Notification received:', text);
+                const lower = text.toLowerCase();
+                if (lower.includes("boarding complete") || lower.includes("push back approved")) {
+                    console.log('Boarding complete detected!');
+                    statusEl.textContent = 'Boarding complete detected → updating waypoint...';
                     statusEl.className = 'success';
-
-                    // Immediate fetch
-                    tryUpdateWaypoint(key, vrpId);
-
-                    // Burst retries
-                    let attempts = 0;
-                    burstTimer = setInterval(() => {
-                        attempts++;
-                        console.log(`Burst retry ${attempts}/${MAX_BURST}`);
-                        tryUpdateWaypoint(key, vrpId);
-                        if (attempts >= MAX_BURST) {
-                            clearInterval(burstTimer);
-                            console.log('Burst finished');
-                            statusEl.textContent = '';
-                        }
-                    }, BURST_INTERVAL);
-                } else {
-                    console.log('Notification does NOT match boarding phrase');
+                    tryUpdateWaypoint(localStorage.getItem(KEY_STORAGE), localStorage.getItem(VRP_STORAGE));
                 }
             }
-        }
 
-        function startNotificationWatcher(key, vrpId) {
-            if (notifTimer) clearInterval(notifTimer);
-            notifTimer = setInterval(() => watchNotification(key, vrpId), NOTIF_INTERVAL);
-            console.log('Notification watcher started');
-        }
+            // Optional: Check job state
+            if (data.job) {
+                console.log('Current job:', data.job);
+            }
+        });
 
         // ================================================================
         // Save & initial run
@@ -273,21 +187,17 @@
             if (!vrpId || !key) {
                 statusEl.textContent = !vrpId ? 'Enter vRP ID' : 'Enter API key';
                 statusEl.className = 'error';
-                console.log('Missing input');
                 return;
             }
 
             statusEl.textContent = 'Validating...';
             statusEl.className = '';
-            console.log('Validating...');
 
             await tryUpdateWaypoint(key, vrpId);
 
             localStorage.setItem(KEY_STORAGE, key);
             localStorage.setItem(VRP_STORAGE, vrpId);
-            startNotificationWatcher(key, vrpId);
             keyBox.style.display = 'none';
-            console.log('Setup complete');
         }
 
         // ================================================================
@@ -297,16 +207,12 @@
             const key = localStorage.getItem(KEY_STORAGE);
             const vrpId = localStorage.getItem(VRP_STORAGE);
 
-            console.log('Auto-run - saved key/vrp:', !!key, vrpId);
-
             if (key && vrpId) {
                 vrpInput.value = vrpId;
                 keyInput.value = key;
                 await tryUpdateWaypoint(key, vrpId);
-                startNotificationWatcher(key, vrpId);
             } else {
                 keyBox.style.display = 'block';
-                console.log('No saved data - showing input');
             }
         }
 
@@ -317,7 +223,6 @@
             if (e.key === "Escape") {
                 window.parent.postMessage({ type: "pin" }, "*");
                 e.preventDefault();
-                console.log('ESC pressed - pinning');
             }
         });
 
@@ -334,16 +239,15 @@
             const key = localStorage.getItem(KEY_STORAGE);
             const vrpId = localStorage.getItem(VRP_STORAGE);
             if (key && vrpId) {
-                console.log('Reset button clicked');
                 tryUpdateWaypoint(key, vrpId);
                 statusEl.textContent = 'Re-set manually ✓';
                 statusEl.className = 'success';
             }
         });
 
-        // Request initial cached notification
-        window.parent.postMessage({ type: "getNamedData", keys: ["notification"] }, "*");
-        console.log('Requested initial cached notification');
+        // Request initial cached data
+        window.parent.postMessage({ type: "getData" }, "*");
+        console.log('Requested full cached data on load');
 
         autoRun();
     </script>
