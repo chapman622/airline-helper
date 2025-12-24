@@ -59,7 +59,7 @@ const VRP_STORAGE = 'tycoonVrpId';
 const BTN_POS_STORAGE = 'tycoonBtnPosition';
 const BURST_INTERVAL = 3000;
 const MAX_BURST_CHECKS = 20;
-const REQUIRED_JOB = "pilot"; // Updated to match what the server sends
+const REQUIRED_JOB = "pilot"; // Matches what the server sends for Airline Pilot
 
 // GLOBALS
 let burstTimer = null;
@@ -73,8 +73,6 @@ let isDragging = false;
 let dragOffsetX = 0;
 let dragOffsetY = 0;
 let isAirlinePilot = false;
-let jobCheckTimeout = null;
-let lastJobValue = null; // To avoid repeat checks
 
 const keyBox = document.getElementById('keyBox');
 const statusEl = document.getElementById('status');
@@ -83,25 +81,21 @@ const vrpInput = document.getElementById('vrpId');
 const refreshBtn = document.getElementById('refreshButton');
 
 // ================================
-// JOB DETECTION (quiet, no spam)
+// JOB DETECTION (real-time, mirror current job)
 // ================================
 function checkJob(job) {
     const jobLower = job ? job.toLowerCase() : '';
     
-    // Only process if job changed
-    if (jobLower === lastJobValue) return;
-    lastJobValue = jobLower;
+    const shouldShow = (jobLower === REQUIRED_JOB);
     
-    // Silent check (no notification spam)
-    const wasAirline = isAirlinePilot;
-    isAirlinePilot = (jobLower === REQUIRED_JOB);
-    
-    if (isAirlinePilot !== wasAirline) {
+    if (shouldShow !== isAirlinePilot) {
+        isAirlinePilot = shouldShow;
+        
         if (isAirlinePilot) {
-            sendDebug('✈️ Airline Pilot detected - ACTIVATING');
+            sendDebug('✈️ Airline Pilot job active - showing button');
             refreshBtn.style.display = 'flex';
         } else {
-            sendDebug('❌ Not airline pilot - DEACTIVATING');
+            sendDebug('Switched to other job - hiding button');
             refreshBtn.style.display = 'none';
             if (isInBurstMode) {
                 stopBurstPolling();
@@ -162,9 +156,7 @@ async function fetchAndSetWaypoint(key, vrpId, isSilent = false) {
                 refreshBtn.style.background = '#00ff00';
                 setTimeout(() => { refreshBtn.style.background = '#28a745'; }, 500);
                 
-                if (isInBurstMode) {
-                    stopBurstPolling();
-                }
+                if (isInBurstMode) stopBurstPolling();
             }
         } else {
             lastX = lastY = lastZ = null;
@@ -329,12 +321,12 @@ function restoreButtonPosition() {
     }
 }
 
-// Message listener (quiet)
+// Message listener
 window.addEventListener("message", (event) => {
     const data = event.data?.data;
     if (!data || typeof data !== 'object') return;
     
-    // Job detection (no spam)
+    // Real-time job check (show/hide button based on current job)
     checkJob(data.job);
     
     if (data.notification && data.notification !== lastNotification) {
@@ -374,7 +366,7 @@ refreshBtn.style.display = 'none';
 
 // Start the app
 autoRun();
-sendDebug('App started - waiting for Airline Pilot job');
+sendDebug('App started');
 </script>
 </body>
 </html>
