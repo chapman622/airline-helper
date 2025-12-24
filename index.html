@@ -15,8 +15,9 @@ button:hover { background:#0056b3; }
 .error { color:#ff5555; }
 .success { color:#55ff99; }
 .hint { margin-top:20px; font-size:13px; color:#aaa; }
-#refreshButton { position:fixed; bottom:20px; right:20px; width:50px; height:50px; cursor:pointer; z-index:9999; opacity:0.7; transition:opacity 0.3s; background:#28a745; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:24px; border:2px solid #1e7e34; }
+#refreshButton { position:fixed; bottom:100px; left:20px; width:50px; height:50px; cursor:move; z-index:9999; opacity:0.7; transition:opacity 0.3s; background:#28a745; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:24px; border:2px solid #1e7e34; user-select:none; }
 #refreshButton:hover { opacity:1; transform:scale(1.1); transition:all 0.2s; }
+#refreshButton.dragging { cursor:grabbing; opacity:1; }
 </style>
 </head>
 <body>
@@ -46,6 +47,7 @@ button:hover { background:#0056b3; }
 const API_URL = 'https://tycoon-2epova.users.cfx.re/status/airline.json';
 const KEY_STORAGE = 'tycoonAutoApiKey';
 const VRP_STORAGE = 'tycoonVrpId';
+const BTN_POS_STORAGE = 'tycoonBtnPosition';
 const BURST_INTERVAL = 3000;
 const MAX_BURST_CHECKS = 20;
 
@@ -261,6 +263,8 @@ window.addEventListener('keydown', e => {
 });
 
 refreshBtn.addEventListener('click', () => {
+    if (isDragging) return; // Don't trigger on drag end
+    
     const key = localStorage.getItem(KEY_STORAGE);
     const vrpId = localStorage.getItem(VRP_STORAGE);
     if (key && vrpId) {
@@ -271,6 +275,63 @@ refreshBtn.addEventListener('click', () => {
         fetchAndSetWaypoint(key, vrpId, true);
     }
 });
+
+// Make button draggable
+refreshBtn.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    dragOffsetX = e.clientX - refreshBtn.offsetLeft;
+    dragOffsetY = e.clientY - refreshBtn.offsetTop;
+    refreshBtn.classList.add('dragging');
+    e.preventDefault();
+});
+
+document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    
+    const newLeft = e.clientX - dragOffsetX;
+    const newTop = e.clientY - dragOffsetY;
+    
+    // Keep button within viewport
+    const maxLeft = window.innerWidth - refreshBtn.offsetWidth;
+    const maxTop = window.innerHeight - refreshBtn.offsetHeight;
+    
+    refreshBtn.style.left = Math.max(0, Math.min(newLeft, maxLeft)) + 'px';
+    refreshBtn.style.top = Math.max(0, Math.min(newTop, maxTop)) + 'px';
+    refreshBtn.style.bottom = 'auto'; // Override bottom positioning
+});
+
+document.addEventListener('mouseup', () => {
+    if (isDragging) {
+        isDragging = false;
+        refreshBtn.classList.remove('dragging');
+        
+        // Save position to localStorage
+        const position = {
+            left: refreshBtn.style.left,
+            top: refreshBtn.style.top
+        };
+        localStorage.setItem(BTN_POS_STORAGE, JSON.stringify(position));
+        console.log('Button position saved:', position);
+    }
+});
+
+// Restore saved button position
+function restoreButtonPosition() {
+    const saved = localStorage.getItem(BTN_POS_STORAGE);
+    if (saved) {
+        try {
+            const pos = JSON.parse(saved);
+            if (pos.left) refreshBtn.style.left = pos.left;
+            if (pos.top) {
+                refreshBtn.style.top = pos.top;
+                refreshBtn.style.bottom = 'auto';
+            }
+            console.log('Button position restored:', pos);
+        } catch (e) {
+            console.log('Failed to restore button position');
+        }
+    }
+}
 
 // Message listener for game data
 window.addEventListener("message", (event) => {
@@ -294,6 +355,9 @@ window.addEventListener("message", (event) => {
 // Request initial cached data
 window.parent.postMessage({ type: "getData" }, "*");
 console.log('Requested initial game data on load');
+
+// Restore button position
+restoreButtonPosition();
 
 // Start the app
 autoRun();
