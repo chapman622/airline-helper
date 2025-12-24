@@ -271,26 +271,20 @@ refreshBtn.addEventListener('click', () => {
 
 // Message listener for game data
 window.addEventListener("message", (event) => {
-    // Don't log every message to avoid spam
-    
     // Handle both formats: event.data.data and event.data
     const msg = event.data.data || event.data || {};
     
-    if (msg.notification) {
-        // Only process if notification actually changed
-        if (msg.notification !== lastNotification) {
-            lastNotification = msg.notification;
-            console.log('NEW NOTIFICATION:', msg.notification);
-            sendDebug("NEW: " + msg.notification);
-            
-            const lower = msg.notification.toLowerCase();
-            if (lower.includes('boarding complete') && lower.includes('push back')) {
-                console.log('🛫 BOARDING COMPLETE DETECTED!');
-                sendDebug('🛫 Boarding complete - starting burst...');
-                startBurstPolling();
-            }
+    if (msg.notification && msg.notification !== lastNotification) {
+        lastNotification = msg.notification;
+        
+        // Only check boarding notifications - ignore everything else silently
+        const lower = msg.notification.toLowerCase();
+        if (lower.includes('boarding complete') && lower.includes('push back')) {
+            console.log('🛫 BOARDING COMPLETE DETECTED:', msg.notification);
+            sendDebug('🛫 Boarding complete - starting burst...');
+            startBurstPolling();
         }
-        // If same notification, silently ignore (no log spam)
+        // All other notifications are silently ignored (no logging)
     }
 });
 
