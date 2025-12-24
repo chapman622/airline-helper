@@ -1,23 +1,23 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Auto Airline WP</title>
-<style>
-body { background: transparent; color: #fff; font-family: Arial,sans-serif; margin:0; padding:0; overflow:hidden; }
-#keyBox { position:absolute; top:40%; left:50%; transform:translate(-50%,-50%); background:rgba(0,0,0,0.85); padding:25px 35px; border-radius:12px; border:1px solid #555; box-shadow:0 0 25px rgba(0,0,0,0.9); text-align:center; min-width:400px; display:none; z-index:9999; }
-h2 { margin:0 0 18px; font-size:21px; color:#4da6ff; }
-input[type=password],input[type=text] { padding:12px; width:280px; font-size:17px; border:1px solid #666; border-radius:6px; background:#111; color:#fff; display:block; margin:0 auto 10px; }
-button { padding:12px 24px; font-size:17px; margin:5px; background:#007bff; color:white; border:none; border-radius:6px; cursor:pointer; }
-button:hover { background:#0056b3; }
-#status { margin-top:15px; font-size:15px; min-height:22px; }
-.error { color:#ff5555; }
-.success { color:#55ff99; }
-.hint { margin-top:20px; font-size:13px; color:#aaa; }
-#refreshButton { position:fixed; bottom:20px; right:20px; width:50px; height:50px; cursor:pointer; z-index:9999; opacity:0.7; transition:opacity 0.3s; background:#28a745; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:24px; border:2px solid #1e7e34; }
-#refreshButton:hover { opacity:1; transform:scale(1.1); transition:all 0.2s; }
-</style>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Auto Airline WP</title>
+    <style>
+        body { background: transparent; color: #fff; font-family: Arial,sans-serif; margin:0; padding:0; overflow:hidden; }
+        #keyBox { position:absolute; top:40%; left:50%; transform:translate(-50%,-50%); background:rgba(0,0,0,0.85); padding:25px 35px; border-radius:12px; border:1px solid #555; box-shadow:0 0 25px rgba(0,0,0,0.9); text-align:center; min-width:400px; display:none; z-index:9999; }
+        h2 { margin:0 0 18px; font-size:21px; color:#4da6ff; }
+        input[type=password],input[type=text] { padding:12px; width:280px; font-size:17px; border:1px solid #666; border-radius:6px; background:#111; color:#fff; display:block; margin:0 auto 10px; }
+        button { padding:12px 24px; font-size:17px; margin:5px; background:#007bff; color:white; border:none; border-radius:6px; cursor:pointer; }
+        button:hover { background:#0056b3; }
+        #status { margin-top:15px; font-size:15px; min-height:22px; }
+        .error { color:#ff5555; }
+        .success { color:#55ff99; }
+        .hint { margin-top:20px; font-size:13px; color:#aaa; }
+        #refreshButton { position:fixed; bottom:20px; right:20px; width:50px; height:50px; cursor:pointer; z-index:9999; opacity:0.7; transition:opacity 0.3s; background:#28a745; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:24px; border:2px solid #1e7e34; }
+        #refreshButton:hover { opacity:1; transform:scale(1.1); transition:all 0.2s; }
+    </style>
 </head>
 <body>
 
@@ -46,7 +46,11 @@ button:hover { background:#0056b3; }
 const API_URL = 'https://tycoon-2epova.users.cfx.re/status/airline.json';
 const KEY_STORAGE = 'tycoonAutoApiKey';
 const VRP_STORAGE = 'tycoonVrpId';
+const BURST_INTERVAL = 3000;
+const MAX_BURST_CHECKS = 20;
 
+let burstTimer = null;
+let burstCount = 0;
 let lastX = null;
 let lastY = null;
 let lastZ = null;
@@ -60,6 +64,7 @@ const refreshBtn = document.getElementById('refreshButton');
 // Debug notification
 function sendDebug(text) {
     window.parent.postMessage({ type: "notification", text: text }, "*");
+    console.log('DEBUG: ' + text);
 }
 
 // Set waypoint
@@ -75,12 +80,15 @@ function setWaypoint(x, y, z) {
     sendDebug('Waypoint set: ' + JSON.stringify(waypointData));
 }
 
-// Fetch & update
+// Fetch & update waypoint
 async function fetchAndSetWaypoint(key, vrpId, isSilent = false) {
     try {
+        console.log('Fetch started');
         const response = await fetch(API_URL, { headers: { 'X-Tycoon-Key': key } });
+        console.log('Fetch status:', response.status);
         if (!response.ok) throw new Error(response.status === 401 ? 'invalid_key' : 'api_error');
         const data = await response.json();
+        console.log('API data received:', data);
         let yourRoute = null;
         for (const [routeNum, routeData] of Object.entries(data)) {
             if (routeData[3].toString() === vrpId.toString()) {
@@ -93,7 +101,7 @@ async function fetchAndSetWaypoint(key, vrpId, isSilent = false) {
             const currX = parseFloat(dest.x).toFixed(2);
             const currY = parseFloat(dest.y).toFixed(2);
             const currZ = parseFloat(dest.z).toFixed(2);
-            // Update if coords changed
+            console.log('Current dest:', currX, currY, currZ, 'Last:', lastX, lastY, lastZ);
             if (lastX !== currX || lastY !== currY || lastZ !== currZ) {
                 setWaypoint(dest.x, dest.y, dest.z);
                 lastX = currX;
@@ -107,6 +115,7 @@ async function fetchAndSetWaypoint(key, vrpId, isSilent = false) {
                 setTimeout(() => { refreshBtn.style.background = '#28a745'; }, 500);
             }
         } else {
+            console.log('No active route');
             lastX = lastY = lastZ = null;
             if (!isSilent) {
                 statusEl.textContent = 'No active airline route';
@@ -116,6 +125,7 @@ async function fetchAndSetWaypoint(key, vrpId, isSilent = false) {
         if (!isSilent) keyBox.style.display = 'none';
         return true;
     } catch (err) {
+        console.error('Fetch error:', err.message);
         if (!isSilent) {
             statusEl.className = 'error';
             statusEl.textContent = err.message === 'invalid_key' ? 'Invalid API key' : 'API error';
@@ -125,22 +135,39 @@ async function fetchAndSetWaypoint(key, vrpId, isSilent = false) {
     }
 }
 
-// Message listener (cargo-style - no type check)
-window.addEventListener('message', (event) => {
-    console.log('Received message:', event.data);
-    const data = event.data?.data || event.data || {};
-    if (data.notification) {
-        console.log('Notification received:', data.notification);
-        const lower = data.notification.toLowerCase();
-        if (lower.includes('boarding complete') && lower.includes('push back approved')) {
-            console.log('Boarding complete detected!');
-            sendDebug('🛫 Boarding complete - updating waypoint...');
-            const key = localStorage.getItem(KEY_STORAGE);
-            const vrpId = localStorage.getItem(VRP_STORAGE);
-            if (key && vrpId) fetchAndSetWaypoint(key, vrpId, false);
-        }
+// Start burst polling
+function startBurstPolling() {
+    if (isInBurstMode) return;
+    isInBurstMode = true;
+    burstCount = 0;
+    const key = localStorage.getItem(KEY_STORAGE);
+    const vrpId = localStorage.getItem(VRP_STORAGE);
+    if (!key || !vrpId) {
+        sendDebug('No saved key/vrpId');
+        return;
     }
-});
+    sendDebug('🔥 Burst polling started');
+    fetchAndSetWaypoint(key, vrpId, true);
+    burstTimer = setInterval(() => {
+        burstCount++;
+        sendDebug(`Burst check ${burstCount}/${MAX_BURST_CHECKS}`);
+        fetchAndSetWaypoint(key, vrpId, true);
+        if (burstCount >= MAX_BURST_CHECKS) {
+            sendDebug('Max burst reached, stopping');
+            stopBurstPolling();
+        }
+    }, BURST_INTERVAL);
+    refreshBtn.style.background = '#ffa500';
+}
+
+function stopBurstPolling() {
+    if (burstTimer) clearInterval(burstTimer);
+    burstTimer = null;
+    isInBurstMode = false;
+    burstCount = 0;
+    refreshBtn.style.background = '#28a745';
+    sendDebug('✅ Burst stopped');
+}
 
 // Save & run
 async function trySaveAndRun() {
@@ -196,9 +223,9 @@ refreshBtn.addEventListener('click', () => {
     if (key && vrpId) fetchAndSetWaypoint(key, vrpId, false);
 });
 
-// Request initial cached data (like cargo script)
+// Request initial cached data (like the cargo script)
 window.parent.postMessage({ type: "getNamedData", keys: ["notification"] }, "*");
-console.log('Requested cached notification');
+console.log('Requested cached notification on load');
 
 autoRun();
 </script>
