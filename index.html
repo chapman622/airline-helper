@@ -73,17 +73,25 @@ const refreshBtn = document.getElementById('refreshButton');
 
 // Check if job is airline pilot
 function checkJob(job) {
+    console.log('Job check - received:', job);
+    
+    const jobLower = job ? job.toLowerCase() : '';
     const wasAirline = isAirlinePilot;
-    isAirlinePilot = (job && job.toLowerCase().includes('airline'));
+    
+    // Check for "airlinepilot" or "airline" in job string
+    isAirlinePilot = (jobLower.includes('airline'));
+    
+    console.log('Job check result - isAirlinePilot:', isAirlinePilot, 'wasAirline:', wasAirline);
     
     if (isAirlinePilot !== wasAirline) {
         if (isAirlinePilot) {
-            console.log('Airline Pilot job detected - activating');
+            console.log('✈️ Airline Pilot job detected - activating');
             refreshBtn.style.display = 'flex';
-            sendDebug('Airline app activated');
+            sendDebug('✈️ Airline app activated');
         } else {
-            console.log('Not airline pilot - deactivating');
+            console.log('❌ Not airline pilot - deactivating');
             refreshBtn.style.display = 'none';
+            sendDebug('Airline app deactivated');
             // Stop any active burst polling
             if (isInBurstMode) {
                 stopBurstPolling();
@@ -367,13 +375,17 @@ window.addEventListener("message", (event) => {
     // Handle both formats: event.data.data and event.data
     const msg = event.data.data || event.data || {};
     
+    console.log('Message received, keys:', Object.keys(msg));
+    
     // Check for job updates
     if (msg.job !== undefined) {
+        console.log('Job update detected:', msg.job);
         checkJob(msg.job);
     }
     
     // Check for trigger keybind
     if (msg.trigger_airline_reset_waypoint) {
+        console.log('Keybind triggered, isAirlinePilot:', isAirlinePilot);
         if (!isAirlinePilot) return;
         
         console.log('Keybind triggered - refreshing waypoint');
@@ -399,7 +411,6 @@ window.addEventListener("message", (event) => {
             sendDebug('🛫 Boarding complete - starting burst...');
             startBurstPolling();
         }
-        // All other notifications are silently ignored (no logging)
     }
 });
 
