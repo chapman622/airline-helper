@@ -59,7 +59,7 @@ const VRP_STORAGE = 'tycoonVrpId';
 const BTN_POS_STORAGE = 'tycoonBtnPosition';
 const BURST_INTERVAL = 3000;
 const MAX_BURST_CHECKS = 20;
-const REQUIRED_JOB = "airlinepilot"; // Exact internal job ID (like cargopilot)
+const REQUIRED_JOB = "pilot"; // Updated to match what the server sends
 
 // GLOBALS
 let burstTimer = null;
@@ -74,6 +74,7 @@ let dragOffsetX = 0;
 let dragOffsetY = 0;
 let isAirlinePilot = false;
 let jobCheckTimeout = null;
+let lastJobValue = null; // To avoid repeat checks
 
 const keyBox = document.getElementById('keyBox');
 const statusEl = document.getElementById('status');
@@ -82,37 +83,31 @@ const vrpInput = document.getElementById('vrpId');
 const refreshBtn = document.getElementById('refreshButton');
 
 // ================================
-// JOB DETECTION (exact internal ID + debounce)
+// JOB DETECTION (quiet, no spam)
 // ================================
 function checkJob(job) {
-    sendDebug('Job check received: ' + (job || 'null'));
+    const jobLower = job ? job.toLowerCase() : '';
     
-    // Clear any pending timeout
-    if (jobCheckTimeout) clearTimeout(jobCheckTimeout);
+    // Only process if job changed
+    if (jobLower === lastJobValue) return;
+    lastJobValue = jobLower;
     
-    // Debounce: wait 1 second
-    jobCheckTimeout = setTimeout(() => {
-        const jobLower = job ? job.toLowerCase() : '';
-        const wasAirline = isAirlinePilot;
-        
-        isAirlinePilot = (jobLower === REQUIRED_JOB);
-        
-        sendDebug('Debounced check: isAirlinePilot = ' + isAirlinePilot + ' (was ' + wasAirline + ')');
-        sendDebug('Job ID: ' + jobLower);
-        
-        if (isAirlinePilot !== wasAirline) {
-            if (isAirlinePilot) {
-                sendDebug('✈️ Airline Pilot detected - ACTIVATING');
-                refreshBtn.style.display = 'flex';
-            } else {
-                sendDebug('❌ Not airline pilot - DEACTIVATING');
-                refreshBtn.style.display = 'none';
-                if (isInBurstMode) {
-                    stopBurstPolling();
-                }
+    // Silent check (no notification spam)
+    const wasAirline = isAirlinePilot;
+    isAirlinePilot = (jobLower === REQUIRED_JOB);
+    
+    if (isAirlinePilot !== wasAirline) {
+        if (isAirlinePilot) {
+            sendDebug('✈️ Airline Pilot detected - ACTIVATING');
+            refreshBtn.style.display = 'flex';
+        } else {
+            sendDebug('❌ Not airline pilot - DEACTIVATING');
+            refreshBtn.style.display = 'none';
+            if (isInBurstMode) {
+                stopBurstPolling();
             }
         }
-    }, 1000);
+    }
 }
 
 function sendDebug(text) {
@@ -132,21 +127,17 @@ function setWaypoint(x, y, z) {
     sendDebug('Waypoint set: ' + x.toFixed(1) + ', ' + y.toFixed(1) + ', ' + z.toFixed(1));
 }
 
-// Fetch & update waypoint (unchanged)
+// Fetch & update waypoint
 async function fetchAndSetWaypoint(key, vrpId, isSilent = false) {
     try {
-        sendDebug('Fetch started');
         const response = await fetch(API_URL, { headers: { 'X-Tycoon-Key': key } });
-        sendDebug('Fetch status: ' + response.status);
         if (!response.ok) throw new Error(response.status === 401 ? 'invalid_key' : 'api_error');
         const data = await response.json();
-        sendDebug('API data received');
         
         let yourRoute = null;
         for (const [routeNum, routeData] of Object.entries(data)) {
             if (routeData[3].toString() === vrpId.toString()) {
                 yourRoute = routeData;
-                sendDebug('Found your route: ' + routeNum);
                 break;
             }
         }
@@ -157,11 +148,7 @@ async function fetchAndSetWaypoint(key, vrpId, isSilent = false) {
             const currY = parseFloat(dest.y).toFixed(2);
             const currZ = parseFloat(dest.z).toFixed(2);
             
-            sendDebug('Current coords: ' + currX + ', ' + currY + ', ' + currZ);
-            sendDebug('Last coords: ' + (lastX || 'null') + ', ' + (lastY || 'null') + ', ' + (lastZ || 'null'));
-            
             if (lastX !== currX || lastY !== currY || lastZ !== currZ) {
-                sendDebug('✓ WAYPOINT CHANGED!');
                 setWaypoint(dest.x, dest.y, dest.z);
                 lastX = currX;
                 lastY = currY;
@@ -176,14 +163,10 @@ async function fetchAndSetWaypoint(key, vrpId, isSilent = false) {
                 setTimeout(() => { refreshBtn.style.background = '#28a745'; }, 500);
                 
                 if (isInBurstMode) {
-                    sendDebug('Stopping burst - waypoint updated');
                     stopBurstPolling();
                 }
-            } else {
-                sendDebug('Same waypoint, no change');
             }
         } else {
-            sendDebug('No active route for vRP ID: ' + vrpId);
             lastX = lastY = lastZ = null;
             if (!isSilent) {
                 statusEl.textContent = 'No active airline route';
@@ -194,26 +177,19 @@ async function fetchAndSetWaypoint(key, vrpId, isSilent = false) {
         if (!isSilent) keyBox.style.display = 'none';
         return true;
     } catch (err) {
-        sendDebug('Fetch error: ' + err.message);
         if (!isSilent) {
             statusEl.className = 'error';
             statusEl.textContent = err.message === 'invalid_key' ? 'Invalid API key' : 'API error';
         }
+        sendDebug('Fetch error: ' + err.message);
         return false;
     }
 }
 
 // Start burst polling
 function startBurstPolling() {
-    if (!isAirlinePilot) {
-        sendDebug('Not airline pilot - burst cancelled');
-        return;
-    }
-    
-    if (isInBurstMode) {
-        sendDebug('Already in burst mode, ignoring');
-        return;
-    }
+    if (!isAirlinePilot) return;
+    if (isInBurstMode) return;
     
     isInBurstMode = true;
     burstCount = 0;
@@ -221,25 +197,17 @@ function startBurstPolling() {
     const key = localStorage.getItem(KEY_STORAGE);
     const vrpId = localStorage.getItem(VRP_STORAGE);
     
-    if (!key || !vrpId) {
-        sendDebug('No saved key/vrpId');
-        return;
-    }
+    if (!key || !vrpId) return;
     
     sendDebug('🔥 BURST POLLING STARTED');
     
-    // Immediate check
     fetchAndSetWaypoint(key, vrpId, true);
     
-    // Then check every 3 seconds
     burstTimer = setInterval(() => {
         burstCount++;
-        sendDebug('Burst check ' + burstCount + '/' + MAX_BURST_CHECKS);
-        
         fetchAndSetWaypoint(key, vrpId, true);
         
         if (burstCount >= MAX_BURST_CHECKS) {
-            sendDebug('Max burst reached, stopping');
             stopBurstPolling();
         }
     }, BURST_INTERVAL);
@@ -361,14 +329,12 @@ function restoreButtonPosition() {
     }
 }
 
-// Message listener
+// Message listener (quiet)
 window.addEventListener("message", (event) => {
     const data = event.data?.data;
     if (!data || typeof data !== 'object') return;
     
-    sendDebug('Message received');
-    
-    // Job detection
+    // Job detection (no spam)
     checkJob(data.job);
     
     if (data.notification && data.notification !== lastNotification) {
