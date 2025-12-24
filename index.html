@@ -15,12 +15,7 @@ button:hover { background:#0056b3; }
 .error { color:#ff5555; }
 .success { color:#55ff99; }
 .hint { margin-top:20px; font-size:13px; color:#aaa; }
-#refreshButton { 
-  position:fixed; bottom:100px; left:20px; width:50px; height:50px; cursor:move; z-index:9999; 
-  opacity:0.7; transition:opacity 0.3s; background:#28a745; border-radius:50%; display:flex; 
-  align-items:center; justify-content:center; font-size:24px; border:2px solid #1e7e34; 
-  user-select:none; 
-}
+#refreshButton { position:fixed; bottom:100px; left:20px; width:50px; height:50px; cursor:move; z-index:9999; opacity:0.7; transition:opacity 0.3s; background:#28a745; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:24px; border:2px solid #1e7e34; user-select:none; }
 #refreshButton:hover { opacity:1; transform:scale(1.1); transition:all 0.2s; }
 #refreshButton.dragging { cursor:grabbing; opacity:1; }
 </style>
@@ -50,17 +45,14 @@ button:hover { background:#0056b3; }
 </script>
 
 <script>
-// ================================
-// CONFIG & GLOBALS
-// ================================
 const API_URL = 'https://tycoon-2epova.users.cfx.re/status/airline.json';
 const KEY_STORAGE = 'tycoonAutoApiKey';
 const VRP_STORAGE = 'tycoonVrpId';
 const BTN_POS_STORAGE = 'tycoonBtnPosition';
 const BURST_INTERVAL = 3000;
 const MAX_BURST_CHECKS = 20;
-const REQUIRED_JOB = "airlinepilot"; // Exact job name - change if server uses different
 
+// GLOBALS
 let burstTimer = null;
 let burstCount = 0;
 let isInBurstMode = false;
@@ -79,26 +71,18 @@ const keyInput = document.getElementById('apiKey');
 const vrpInput = document.getElementById('vrpId');
 const refreshBtn = document.getElementById('refreshButton');
 
-// ================================
-// DEBUG NOTIFICATION
-// ================================
-function sendDebug(text) {
-    window.parent.postMessage({ type: "notification", text: text }, "*");
-    console.log('DEBUG: ' + text);
-}
-
-// ================================
-// JOB DETECTION (exact cargo pattern)
-// ================================
-function checkJob(job) {
-    console.log('Job check - received:', job);
+// Check if job is airline pilot (using display name)
+function checkJob(job, jobName, jobTitle) {
+    console.log('Job check - received:', { job, jobName, jobTitle });
     
-    const jobLower = job ? job.toLowerCase() : '';
+    const nameLower = (jobName || jobTitle || '').toLowerCase();
     const wasAirline = isAirlinePilot;
     
-    isAirlinePilot = (jobLower === REQUIRED_JOB);
+    // Match "Airline Pilot" display name
+    isAirlinePilot = nameLower.includes('airline pilot') || nameLower.includes('airlinepilot');
     
     console.log('Job check result - isAirlinePilot:', isAirlinePilot, 'wasAirline:', wasAirline);
+    console.log('Full lower name:', nameLower);
     
     if (isAirlinePilot !== wasAirline) {
         if (isAirlinePilot) {
@@ -116,9 +100,12 @@ function checkJob(job) {
     }
 }
 
-// ================================
-// SET WAYPOINT
-// ================================
+function sendDebug(text) {
+    window.parent.postMessage({ type: "notification", text: text }, "*");
+    console.log('DEBUG: ' + text);
+}
+
+// Set waypoint
 function setWaypoint(x, y, z) {
     const waypointData = {
         type: "setWaypoint",
@@ -131,9 +118,7 @@ function setWaypoint(x, y, z) {
     sendDebug('Waypoint set: ' + x.toFixed(1) + ', ' + y.toFixed(1) + ', ' + z.toFixed(1));
 }
 
-// ================================
-// FETCH & UPDATE WAYPOINT
-// ================================
+// Fetch & update waypoint
 async function fetchAndSetWaypoint(key, vrpId, isSilent = false) {
     try {
         console.log('Fetch started');
@@ -205,9 +190,7 @@ async function fetchAndSetWaypoint(key, vrpId, isSilent = false) {
     }
 }
 
-// ================================
-// BURST POLLING
-// ================================
+// Start burst polling
 function startBurstPolling() {
     if (!isAirlinePilot) {
         console.log('Not airline pilot - burst cancelled');
@@ -267,9 +250,7 @@ function stopBurstPolling() {
     sendDebug('✅ Burst stopped');
 }
 
-// ================================
-// SAVE & INITIAL RUN
-// ================================
+// Save & run
 async function trySaveAndRun() {
     const key = keyInput.value.trim();
     const vrpId = vrpInput.value.trim();
@@ -287,9 +268,7 @@ async function trySaveAndRun() {
     }
 }
 
-// ================================
-// AUTO-RUN
-// ================================
+// Auto-run
 async function autoRun() {
     const key = localStorage.getItem(KEY_STORAGE);
     const vrpId = localStorage.getItem(VRP_STORAGE);
@@ -303,9 +282,7 @@ async function autoRun() {
     }
 }
 
-// ================================
 // EVENTS
-// ================================
 window.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
         window.parent.postMessage({ type: 'pin' }, '*');
@@ -376,31 +353,15 @@ function restoreButtonPosition() {
     }
 }
 
-// Message listener (cargo-style - handles all messages)
+// Message listener (cargo-style)
 window.addEventListener("message", (event) => {
     const data = event.data?.data;
     if (!data || typeof data !== 'object') return;
     
     console.log('Message received, keys:', Object.keys(data));
     
-    // Job detection - only show UI if job is airlinepilot
-    const job = data.job?.toLowerCase();
-    if (job) {
-        if (job !== REQUIRED_JOB) {
-            isAirlinePilot = false;
-            refreshBtn.style.display = 'none';
-            if (isInBurstMode) stopBurstPolling();
-            return;
-        } else {
-            const wasNotAirline = !isAirlinePilot;
-            isAirlinePilot = true;
-            refreshBtn.style.display = 'flex';
-            
-            if (wasNotAirline) {
-                window.parent.postMessage({ type: "getData" }, "*");
-            }
-        }
-    }
+    // Job detection - use job_name or job_title
+    checkJob(data.job, data.job_name, data.job_title);
     
     if (data.notification && data.notification !== lastNotification) {
         lastNotification = data.notification;
@@ -420,7 +381,7 @@ window.addEventListener("message", (event) => {
 window.parent.postMessage({ type: "getData" }, "*");
 console.log('Requested initial game data on load');
 
-// Register keybind (optional - for F9 reset)
+// Register keybind (optional)
 window.parent.postMessage({
     type: "registerTrigger",
     trigger: "airline_reset_waypoint",
