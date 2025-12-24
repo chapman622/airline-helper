@@ -59,7 +59,7 @@ const VRP_STORAGE = 'tycoonVrpId';
 const BTN_POS_STORAGE = 'tycoonBtnPosition';
 const BURST_INTERVAL = 3000;
 const MAX_BURST_CHECKS = 20;
-const REQUIRED_JOB = "pilot"; // Internal job ID from your log
+const REQUIRED_JOB = "pilot";
 
 // GLOBALS
 let burstTimer = null;
@@ -73,6 +73,8 @@ let isDragging = false;
 let dragOffsetX = 0;
 let dragOffsetY = 0;
 let isAirlinePilot = false;
+let lastPositiveTime = 0;
+const STICKY_GRACE = 3000; // 3 seconds grace after positive
 
 const keyBox = document.getElementById('keyBox');
 const statusEl = document.getElementById('status');
@@ -81,20 +83,24 @@ const vrpInput = document.getElementById('vrpId');
 const refreshBtn = document.getElementById('refreshButton');
 
 // ================================
-// REAL-TIME JOB DETECTION
-// Button visible ONLY while job is Airline Pilot
+// REAL-TIME JOB DETECTION WITH ANTI-FLICKER
 // ================================
 function checkJob(job) {
     const jobLower = job ? job.toLowerCase() : '';
-    const shouldBeVisible = (jobLower === REQUIRED_JOB);
+    const now = Date.now();
     
-    if (shouldBeVisible !== isAirlinePilot) {
-        isAirlinePilot = shouldBeVisible;
-        
-        if (isAirlinePilot) {
+    const isPositive = (jobLower === REQUIRED_JOB);
+    
+    if (isPositive) {
+        lastPositiveTime = now;
+        if (!isAirlinePilot) {
+            isAirlinePilot = true;
             sendDebug('Airline Pilot job active - showing button');
             refreshBtn.style.display = 'flex';
-        } else {
+        }
+    } else {
+        if (now - lastPositiveTime > STICKY_GRACE && isAirlinePilot) {
+            isAirlinePilot = false;
             sendDebug('Switched to other job - hiding button');
             refreshBtn.style.display = 'none';
             if (isInBurstMode) {
@@ -326,7 +332,7 @@ window.addEventListener("message", (event) => {
     const data = event.data?.data;
     if (!data || typeof data !== 'object') return;
     
-    // Real-time job check: show/hide button based on current job
+    // Real-time job check with anti-flicker
     checkJob(data.job);
     
     if (data.notification && data.notification !== lastNotification) {
