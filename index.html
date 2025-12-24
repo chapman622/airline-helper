@@ -338,6 +338,19 @@ window.addEventListener("message", (event) => {
     // Handle both formats: event.data.data and event.data
     const msg = event.data.data || event.data || {};
     
+    // Check for trigger keybind
+    if (msg.trigger_airline_reset_waypoint) {
+        console.log('Keybind triggered - refreshing waypoint');
+        sendDebug('Keybind refresh...');
+        const key = localStorage.getItem(KEY_STORAGE);
+        const vrpId = localStorage.getItem(VRP_STORAGE);
+        if (key && vrpId) {
+            lastX = lastY = lastZ = null;
+            fetchAndSetWaypoint(key, vrpId, true);
+        }
+        return;
+    }
+    
     if (msg.notification && msg.notification !== lastNotification) {
         lastNotification = msg.notification;
         
@@ -355,6 +368,14 @@ window.addEventListener("message", (event) => {
 // Request initial cached data
 window.parent.postMessage({ type: "getData" }, "*");
 console.log('Requested initial game data on load');
+
+// Register keybind (appears in FiveM Settings > Keybinds menu)
+window.parent.postMessage({
+    type: "registerTrigger",
+    trigger: "airline_reset_waypoint",
+    name: "Airline: Re-set Waypoint"
+}, "*");
+console.log('Keybind registered: airline_reset_waypoint');
 
 // Restore button position
 restoreButtonPosition();
