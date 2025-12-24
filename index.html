@@ -1,23 +1,23 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Auto Airline WP</title>
-    <style>
-        body { background: transparent; color: #fff; font-family: Arial,sans-serif; margin:0; padding:0; overflow:hidden; }
-        #keyBox { position:absolute; top:40%; left:50%; transform:translate(-50%,-50%); background:rgba(0,0,0,0.85); padding:25px 35px; border-radius:12px; border:1px solid #555; box-shadow:0 0 25px rgba(0,0,0,0.9); text-align:center; min-width:400px; display:none; z-index:9999; }
-        h2 { margin:0 0 18px; font-size:21px; color:#4da6ff; }
-        input[type=password],input[type=text] { padding:12px; width:280px; font-size:17px; border:1px solid #666; border-radius:6px; background:#111; color:#fff; display:block; margin:0 auto 10px; }
-        button { padding:12px 24px; font-size:17px; margin:5px; background:#007bff; color:white; border:none; border-radius:6px; cursor:pointer; }
-        button:hover { background:#0056b3; }
-        #status { margin-top:15px; font-size:15px; min-height:22px; }
-        .error { color:#ff5555; }
-        .success { color:#55ff99; }
-        .hint { margin-top:20px; font-size:13px; color:#aaa; }
-        #refreshButton { position:fixed; bottom:20px; right:20px; width:50px; height:50px; cursor:pointer; z-index:9999; opacity:0.7; transition:opacity 0.3s; background:#28a745; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:24px; border:2px solid #1e7e34; }
-        #refreshButton:hover { opacity:1; transform:scale(1.1); transition:all 0.2s; }
-    </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Auto Airline WP</title>
+<style>
+body { background: transparent; color: #fff; font-family: Arial,sans-serif; margin:0; padding:0; overflow:hidden; }
+#keyBox { position:absolute; top:40%; left:50%; transform:translate(-50%,-50%); background:rgba(0,0,0,0.85); padding:25px 35px; border-radius:12px; border:1px solid #555; box-shadow:0 0 25px rgba(0,0,0,0.9); text-align:center; min-width:400px; display:none; z-index:9999; }
+h2 { margin:0 0 18px; font-size:21px; color:#4da6ff; }
+input[type=password],input[type=text] { padding:12px; width:280px; font-size:17px; border:1px solid #666; border-radius:6px; background:#111; color:#fff; display:block; margin:0 auto 10px; }
+button { padding:12px 24px; font-size:17px; margin:5px; background:#007bff; color:white; border:none; border-radius:6px; cursor:pointer; }
+button:hover { background:#0056b3; }
+#status { margin-top:15px; font-size:15px; min-height:22px; }
+.error { color:#ff5555; }
+.success { color:#55ff99; }
+.hint { margin-top:20px; font-size:13px; color:#aaa; }
+#refreshButton { position:fixed; bottom:20px; right:20px; width:50px; height:50px; cursor:pointer; z-index:9999; opacity:0.7; transition:opacity 0.3s; background:#28a745; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:24px; border:2px solid #1e7e34; }
+#refreshButton:hover { opacity:1; transform:scale(1.1); transition:all 0.2s; }
+</style>
 </head>
 <body>
 
@@ -226,6 +226,23 @@ refreshBtn.addEventListener('click', () => {
 // Request initial cached data (like the cargo script)
 window.parent.postMessage({ type: "getNamedData", keys: ["notification"] }, "*");
 console.log('Requested cached notification on load');
+
+// Message listener (cargo-style - no type check)
+window.addEventListener("message", (event) => {
+    console.log("Received game data:", event.data);
+    const msg = event.data.data || event.data || {};
+    if (msg.notification && msg.notification !== lastNotification) {
+        lastNotification = msg.notification;
+        console.log('Notification changed:', msg.notification);
+        sendDebug("NOTIFICATION: " + msg.notification);
+        const lower = msg.notification.toLowerCase();
+        if (lower.includes('boarding complete') && lower.includes('push back approved')) {
+            console.log('Boarding complete detected!');
+            sendDebug('🛫 Boarding complete - starting burst...');
+            startBurstPolling();
+        }
+    }
+});
 
 autoRun();
 </script>
