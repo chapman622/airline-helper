@@ -55,10 +55,15 @@ const MAX_BURST_CHECKS = 20;
 let burstTimer = null;
 let burstCount = 0;
 let isInBurstMode = false;
-let lastNotification = null; // null instead of empty string to catch first notification
+let lastNotification = null;
 let lastX = null;
 let lastY = null;
 let lastZ = null;
+let isDragging = false;
+let dragOffsetX = 0;
+let dragOffsetY = 0;
+let currentJob = null;
+let isAirlinePilot = false;
 
 const keyBox = document.getElementById('keyBox');
 const statusEl = document.getElementById('status');
