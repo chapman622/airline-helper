@@ -59,7 +59,7 @@ const VRP_STORAGE = 'tycoonVrpId';
 const BTN_POS_STORAGE = 'tycoonBtnPosition';
 const BURST_INTERVAL = 3000;
 const MAX_BURST_CHECKS = 20;
-const REQUIRED_JOB = "pilot";
+const REQUIRED_JOB = "pilot"; // Internal job ID
 
 // GLOBALS
 let burstTimer = null;
@@ -73,8 +73,6 @@ let isDragging = false;
 let dragOffsetX = 0;
 let dragOffsetY = 0;
 let isAirlinePilot = false;
-let lastPositiveTime = 0;
-const STICKY_GRACE = 3000; // 3 seconds grace after positive
 
 const keyBox = document.getElementById('keyBox');
 const statusEl = document.getElementById('status');
@@ -83,29 +81,25 @@ const vrpInput = document.getElementById('vrpId');
 const refreshBtn = document.getElementById('refreshButton');
 
 // ================================
-// REAL-TIME JOB DETECTION WITH ANTI-FLICKER
+// JOB DETECTION - Set once, reset only on clear other job
 // ================================
 function checkJob(job) {
     const jobLower = job ? job.toLowerCase() : '';
-    const now = Date.now();
-    
-    const isPositive = (jobLower === REQUIRED_JOB);
-    
-    if (isPositive) {
-        lastPositiveTime = now;
-        if (!isAirlinePilot) {
-            isAirlinePilot = true;
-            sendDebug('Airline Pilot job active - showing button');
-            refreshBtn.style.display = 'flex';
-        }
-    } else {
-        if (now - lastPositiveTime > STICKY_GRACE && isAirlinePilot) {
-            isAirlinePilot = false;
-            sendDebug('Switched to other job - hiding button');
-            refreshBtn.style.display = 'none';
-            if (isInBurstMode) {
-                stopBurstPolling();
-            }
+
+    // Activate once we see "pilot"
+    if (jobLower === REQUIRED_JOB && !isAirlinePilot) {
+        isAirlinePilot = true;
+        sendDebug('Airline Pilot detected - showing button (stays until other job)');
+        refreshBtn.style.display = 'flex';
+    }
+
+    // Deactivate only if we see a clearly different job
+    else if (jobLower && jobLower !== REQUIRED_JOB && isAirlinePilot) {
+        isAirlinePilot = false;
+        sendDebug('Changed to other job (' + jobLower + ') - hiding button');
+        refreshBtn.style.display = 'none';
+        if (isInBurstMode) {
+            stopBurstPolling();
         }
     }
 }
@@ -127,7 +121,7 @@ function setWaypoint(x, y, z) {
     sendDebug('Waypoint set: ' + x.toFixed(1) + ', ' + y.toFixed(1) + ', ' + z.toFixed(1));
 }
 
-// Fetch & update waypoint
+// Fetch & update waypoint (your original, silent)
 async function fetchAndSetWaypoint(key, vrpId, isSilent = false) {
     try {
         const response = await fetch(API_URL, { headers: { 'X-Tycoon-Key': key } });
@@ -332,7 +326,7 @@ window.addEventListener("message", (event) => {
     const data = event.data?.data;
     if (!data || typeof data !== 'object') return;
     
-    // Real-time job check with anti-flicker
+    // Real-time job check - set once, reset only on clear other job
     checkJob(data.job);
     
     if (data.notification && data.notification !== lastNotification) {
