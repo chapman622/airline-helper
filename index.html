@@ -1,237 +1,249 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Auto Airline WP</title>
-    <style>
-        body { background: transparent; color: #fff; font-family: Arial,sans-serif; margin:0; padding:0; overflow:hidden; }
-        #keyBox { position:absolute; top:40%; left:50%; transform:translate(-50%,-50%); background:rgba(0,0,0,0.85); padding:25px 35px; border-radius:12px; border:1px solid #555; box-shadow:0 0 25px rgba(0,0,0,0.9); text-align:center; min-width:400px; display:none; z-index:9999; }
-        h2 { margin:0 0 18px; font-size:21px; color:#4da6ff; }
-        input[type=password],input[type=text] { padding:12px; width:280px; font-size:17px; border:1px solid #666; border-radius:6px; background:#111; color:#fff; display:block; margin:0 auto 10px; }
-        button { padding:12px 24px; font-size:17px; margin:5px; background:#007bff; color:white; border:none; border-radius:6px; cursor:pointer; }
-        button:hover { background:#0056b3; }
-        #status { margin-top:15px; font-size:15px; min-height:22px; }
-        .error { color:#ff5555; }
-        .success { color:#55ff99; }
-        .hint { margin-top:20px; font-size:13px; color:#aaa; }
-        #refreshButton { position:fixed; bottom:20px; right:20px; width:50px; height:50px; cursor:pointer; z-index:9999; opacity:0.7; transition:opacity 0.3s; background:#28a745; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:24px; border:2px solid #1e7e34; }
-        #refreshButton:hover { opacity:1; transform:scale(1.1); transition:all 0.2s; }
-    </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Auto Airline WP</title>
+<style>
+body { background: transparent; color: #fff; font-family: Arial,sans-serif; margin:0; padding:0; overflow:hidden; }
+#keyBox { position:absolute; top:40%; left:50%; transform:translate(-50%,-50%); background:rgba(0,0,0,0.85); padding:25px 35px; border-radius:12px; border:1px solid #555; box-shadow:0 0 25px rgba(0,0,0,0.9); text-align:center; min-width:400px; display:none; z-index:9999; }
+h2 { margin:0 0 18px; font-size:21px; color:#4da6ff; }
+input[type=password],input[type=text] { padding:12px; width:280px; font-size:17px; border:1px solid #666; border-radius:6px; background:#111; color:#fff; display:block; margin:0 auto 10px; }
+button { padding:12px 24px; font-size:17px; margin:5px; background:#007bff; color:white; border:none; border-radius:6px; cursor:pointer; }
+button:hover { background:#0056b3; }
+#status { margin-top:15px; font-size:15px; min-height:22px; }
+.error { color:#ff5555; }
+.success { color:#55ff99; }
+.hint { margin-top:20px; font-size:13px; color:#aaa; }
+#refreshButton { position:fixed; bottom:20px; right:20px; width:50px; height:50px; cursor:pointer; z-index:9999; opacity:0.7; transition:opacity 0.3s; background:#28a745; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:24px; border:2px solid #1e7e34; }
+#refreshButton:hover { opacity:1; transform:scale(1.1); transition:all 0.2s; }
+</style>
 </head>
 <body>
 
-    <div id="keyBox">
-        <h2>Initial Setup (one-time)</h2>
-        <input type="text" id="vrpId" placeholder="Your vRP ID (e.g., 30197)" />
-        <input type="password" id="apiKey" placeholder="Your private Tycoon API key" autofocus />
-        <button onclick="trySaveAndRun()">Save & Start</button>
-        <div id="status"></div>
-        <div class="hint">Press ESC to pin/minimize • Enter to save</div>
-    </div>
+<div id="keyBox">
+    <h2>Initial Setup (one-time)</h2>
+    <input type="text" id="vrpId" placeholder="Your vRP ID (e.g., 30197)" />
+    <input type="password" id="apiKey" placeholder="Your private Tycoon API key" autofocus />
+    <button onclick="trySaveAndRun()">Save & Start</button>
+    <div id="status"></div>
+    <div class="hint">Press ESC to pin/minimize • Enter to save</div>
+</div>
+<div id="refreshButton" title="Refresh waypoint now">✈️</div>
 
-    <div id="refreshButton" title="Refresh waypoint now">✈️</div>
+<!-- AUTO CACHE-BUST -->
+<script>
+(function() {
+    const url = new URL(location.href);
+    if (!url.searchParams.has("v")) {
+        url.searchParams.set("v", Date.now());
+        location.replace(url);
+    }
+})();
+</script>
 
-    <!-- AUTO CACHE-BUST -->
-    <script>
-        (function() {
-            const url = new URL(location.href);
-            if (!url.searchParams.has("v")) {
-                url.searchParams.set("v", Date.now());
-                location.replace(url);
+<script>
+const API_URL = 'https://tycoon-2epova.users.cfx.re/status/airline.json';
+const KEY_STORAGE = 'tycoonAutoApiKey';
+const VRP_STORAGE = 'tycoonVrpId';
+const BURST_INTERVAL = 3000;
+const MAX_BURST_CHECKS = 20;
+
+let burstTimer = null;
+let burstCount = 0;
+let lastX = null;
+let lastY = null;
+let lastZ = null;
+
+const keyBox = document.getElementById('keyBox');
+const statusEl = document.getElementById('status');
+const keyInput = document.getElementById('apiKey');
+const vrpInput = document.getElementById('vrpId');
+const refreshBtn = document.getElementById('refreshButton');
+
+// Debug notification
+function sendDebug(text) {
+    window.parent.postMessage({ type: "notification", text: text }, "*");
+    console.log('DEBUG: ' + text);
+}
+
+// Set waypoint
+function setWaypoint(x, y, z) {
+    const waypointData = {
+        type: "setWaypoint",
+        x: parseFloat(x),
+        y: parseFloat(y),
+        z: parseFloat(z)
+    };
+    window.postMessage(waypointData, "*");
+    if (window.parent !== window) window.parent.postMessage(waypointData, "*");
+    sendDebug('Waypoint set: ' + JSON.stringify(waypointData));
+}
+
+// Fetch & update waypoint
+async function fetchAndSetWaypoint(key, vrpId, isSilent = false) {
+    try {
+        console.log('Fetch started');
+        const response = await fetch(API_URL, { headers: { 'X-Tycoon-Key': key } });
+        console.log('Fetch status:', response.status);
+        if (!response.ok) throw new Error(response.status === 401 ? 'invalid_key' : 'api_error');
+        const data = await response.json();
+        console.log('API data received');
+        let yourRoute = null;
+        for (const [routeNum, routeData] of Object.entries(data)) {
+            if (routeData[3].toString() === vrpId.toString()) {
+                yourRoute = routeData;
+                break;
             }
-        })();
-    </script>
-
-    <script>
-        const API_URL = 'https://tycoon-2epova.users.cfx.re/status/airline.json';
-        const KEY_STORAGE = 'tycoonAutoApiKey';
-        const VRP_STORAGE = 'tycoonVrpId';
-        const BURST_INTERVAL = 5000;   // 5s during burst
-        const MAX_BURST_CHECKS = 12;   // 60s max burst
-        const POSITION_CHECK_INTERVAL = 10000; // 10s position check
-        const ARRIVAL_DISTANCE = 500;  // units (roughly 500m radius)
-
-        let burstTimer = null;
-        let burstCount = 0;
-        let lastDestX = null;
-        let lastDestY = null;
-        let lastDestZ = null;
-        let isInBurstMode = false;
-        let positionCheckTimer = null;
-
-        const keyBox = document.getElementById('keyBox');
-        const statusEl = document.getElementById('status');
-        const keyInput = document.getElementById('apiKey');
-        const vrpInput = document.getElementById('vrpId');
-        const refreshBtn = document.getElementById('refreshButton');
-
-        function sendDebug(text) {
-            window.parent.postMessage({ type: "notification", text: text }, "*");
-            console.log('DEBUG: ' + text);
         }
-
-        function setWaypoint(x, y, z) {
-            const waypointData = {type:"setWaypoint", x:parseFloat(x), y:parseFloat(y), z:parseFloat(z)};
-            window.postMessage(waypointData,"*");
-            if (window.parent!==window) window.parent.postMessage(waypointData,"*");
-            sendDebug('Waypoint set: ' + JSON.stringify(waypointData));
-        }
-
-        function distanceToDest(currX, currY, destX, destY) {
-            return Math.sqrt(Math.pow(currX - destX, 2) + Math.pow(currY - destY, 2));
-        }
-
-        async function fetchAndSetWaypoint(key, vrpId, isSilent = false) {
-            try {
-                console.log('Fetch started');
-                const response = await fetch(API_URL, { headers: { 'X-Tycoon-Key': key } });
-                console.log('Fetch status:', response.status);
-                if (!response.ok) throw new Error(response.status === 401 ? 'invalid_key' : 'api_error');
-                const data = await response.json();
-                let yourRoute = null;
-                for (const [routeNum, routeData] of Object.entries(data)) {
-                    if (routeData[3].toString() === vrpId.toString()) {
-                        yourRoute = routeData;
-                        break;
-                    }
-                }
-                if (yourRoute) {
-                    const dest = yourRoute[1];
-                    const currX = parseFloat(dest.x).toFixed(2);
-                    const currY = parseFloat(dest.y).toFixed(2);
-                    const currZ = parseFloat(dest.z).toFixed(2);
-                    // Always set waypoint if coords changed or during burst
-                    if (lastDestX !== currX || lastDestY !== currY || lastDestZ !== currZ || isInBurstMode) {
-                        setWaypoint(dest.x, dest.y, dest.z);
-                        lastDestX = currX;
-                        lastDestY = currY;
-                        lastDestZ = currZ;
-                        if (!isSilent) {
-                            statusEl.textContent = `Waypoint: ${dest.name} (${dest.airport}) ✓`;
-                            statusEl.className = 'success';
-                        }
-                        refreshBtn.style.background = '#00ff00';
-                        setTimeout(() => { refreshBtn.style.background = '#28a745'; }, 500);
-                        if (isInBurstMode) stopBurstPolling();
-                    }
-                } else {
-                    lastDestX = lastDestY = lastDestZ = null;
-                    if (!isSilent) {
-                        statusEl.textContent = 'No active airline route';
-                        statusEl.className = '';
-                    }
-                }
-                if (!isSilent) keyBox.style.display = 'none';
-                return true;
-            } catch (err) {
-                console.error('Fetch error:', err.message);
+        if (yourRoute) {
+            const dest = yourRoute[1];
+            const currX = parseFloat(dest.x).toFixed(2);
+            const currY = parseFloat(dest.y).toFixed(2);
+            const currZ = parseFloat(dest.z).toFixed(2);
+            if (lastX !== currX || lastY !== currY || lastZ !== currZ) {
+                setWaypoint(dest.x, dest.y, dest.z);
+                lastX = currX;
+                lastY = currY;
+                lastZ = currZ;
                 if (!isSilent) {
-                    statusEl.className = 'error';
-                    statusEl.textContent = err.message === 'invalid_key' ? 'Invalid API key' : 'API error';
+                    statusEl.textContent = `Waypoint: ${dest.name} (${dest.airport}) ✓`;
+                    statusEl.className = 'success';
                 }
-                sendDebug('Fetch error: ' + err.message);
-                return false;
+                refreshBtn.style.background = '#00ff00';
+                setTimeout(() => { refreshBtn.style.background = '#28a745'; }, 500);
+            }
+        } else {
+            console.log('No active route');
+            lastX = lastY = lastZ = null;
+            if (!isSilent) {
+                statusEl.textContent = 'No active airline route';
+                statusEl.className = '';
             }
         }
-
-        function startBurstPolling(key, vrpId) {
-            if (isInBurstMode) return;
-            isInBurstMode = true;
-            burstCount = 0;
-            sendDebug('🔥 Burst polling started (near airport)');
-            fetchAndSetWaypoint(key, vrpId, true);
-            burstTimer = setInterval(() => {
-                burstCount++;
-                sendDebug(`Burst check ${burstCount}/${MAX_BURST_CHECKS}`);
-                fetchAndSetWaypoint(key, vrpId, true);
-                if (burstCount >= MAX_BURST_CHECKS) {
-                    sendDebug('Max burst reached, stopping');
-                    stopBurstPolling();
-                }
-            }, BURST_INTERVAL);
-            refreshBtn.style.background = '#ffa500';
+        if (!isSilent) keyBox.style.display = 'none';
+        return true;
+    } catch (err) {
+        console.error('Fetch error:', err.message);
+        if (!isSilent) {
+            statusEl.className = 'error';
+            statusEl.textContent = err.message === 'invalid_key' ? 'Invalid API key' : 'API error';
         }
+        sendDebug('Fetch error: ' + err.message);
+        return false;
+    }
+}
 
-        function stopBurstPolling() {
-            if (burstTimer) clearInterval(burstTimer);
-            burstTimer = null;
-            isInBurstMode = false;
-            burstCount = 0;
-            refreshBtn.style.background = '#28a745';
-            sendDebug('✅ Burst stopped');
+// Start burst polling
+function startBurstPolling() {
+    if (isInBurstMode) return;
+    isInBurstMode = true;
+    burstCount = 0;
+    const key = localStorage.getItem(KEY_STORAGE);
+    const vrpId = localStorage.getItem(VRP_STORAGE);
+    if (!key || !vrpId) {
+        sendDebug('No saved key/vrpId');
+        return;
+    }
+    sendDebug('🔥 Burst polling started');
+    fetchAndSetWaypoint(key, vrpId, true);
+    burstTimer = setInterval(() => {
+        burstCount++;
+        sendDebug(`Burst check ${burstCount}/${MAX_BURST_CHECKS}`);
+        fetchAndSetWaypoint(key, vrpId, true);
+        if (burstCount >= MAX_BURST_CHECKS) {
+            sendDebug('Max burst reached, stopping');
+            stopBurstPolling();
         }
+    }, BURST_INTERVAL);
+    refreshBtn.style.background = '#ffa500';
+}
 
-        function checkPosition() {
-            const posX = window.pos_x;
-            const posY = window.pos_y;
-            if (posX === undefined || posY === undefined || lastDestX === null) return;
+function stopBurstPolling() {
+    if (burstTimer) clearInterval(burstTimer);
+    burstTimer = null;
+    isInBurstMode = false;
+    burstCount = 0;
+    refreshBtn.style.background = '#28a745';
+    sendDebug('✅ Burst stopped');
+}
 
-            const dist = distanceToDest(posX, posY, lastDestX, lastDestY);
-            console.log('Position check - Distance to dest:', dist.toFixed(0));
-            if (dist < ARRIVAL_DISTANCE && !isInBurstMode) {
-                const key = localStorage.getItem(KEY_STORAGE);
-                const vrpId = localStorage.getItem(VRP_STORAGE);
-                if (key && vrpId) startBurstPolling(key, vrpId);
-            }
+// Save & run
+async function trySaveAndRun() {
+    const key = keyInput.value.trim();
+    const vrpId = vrpInput.value.trim();
+    if (!vrpId || !key) {
+        statusEl.textContent = !vrpId ? 'Enter vRP ID' : 'Enter API key';
+        statusEl.className = 'error';
+        return;
+    }
+    statusEl.textContent = 'Validating...';
+    statusEl.className = '';
+    if (await fetchAndSetWaypoint(key, vrpId, false)) {
+        localStorage.setItem(KEY_STORAGE, key);
+        localStorage.setItem(VRP_STORAGE, vrpId);
+        sendDebug('Setup complete');
+    }
+}
+
+// Auto-run
+async function autoRun() {
+    const key = localStorage.getItem(KEY_STORAGE);
+    const vrpId = localStorage.getItem(VRP_STORAGE);
+    if (key && vrpId) {
+        vrpInput.value = vrpId;
+        keyInput.value = key;
+        await fetchAndSetWaypoint(key, vrpId, false);
+    } else {
+        keyBox.style.display = 'block';
+    }
+}
+
+// EVENTS
+window.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+        window.parent.postMessage({ type: 'pin' }, '*');
+        e.preventDefault();
+    }
+});
+
+[keyInput, vrpInput].forEach(input => {
+    input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            trySaveAndRun();
         }
+    });
+});
 
-        async function trySaveAndRun() {
-            const key = keyInput.value.trim();
-            const vrpId = vrpInput.value.trim();
-            if (!vrpId || !key) {
-                statusEl.textContent = !vrpId ? 'Enter vRP ID' : 'Enter API key';
-                statusEl.className = 'error';
-                return;
-            }
-            statusEl.textContent = 'Validating...';
-            statusEl.className = '';
-            if (await fetchAndSetWaypoint(key, vrpId, false)) {
-                localStorage.setItem(KEY_STORAGE, key);
-                localStorage.setItem(VRP_STORAGE, vrpId);
-                sendDebug('Setup complete');
-            }
+refreshBtn.addEventListener('click', () => {
+    const key = localStorage.getItem(KEY_STORAGE);
+    const vrpId = localStorage.getItem(VRP_STORAGE);
+    if (key && vrpId) fetchAndSetWaypoint(key, vrpId, false);
+});
+
+// Request initial cached data (like cargo script)
+window.parent.postMessage({ type: "getNamedData", keys: ["notification"] }, "*");
+console.log('Requested cached notification on load');
+
+// Message listener (exact cargo pattern)
+window.addEventListener("message", (event) => {
+    console.log("Received game data:", event.data);
+    const msg = event.data.data || event.data || {};
+    if (msg.notification && msg.notification !== lastNotification) {
+        lastNotification = msg.notification;
+        console.log('Notification changed:', msg.notification);
+        sendDebug("NOTIFICATION: " + msg.notification);
+        const lower = msg.notification.toLowerCase();
+        if (lower.includes('boarding complete') && lower.includes('push back approved')) {
+            console.log('Boarding complete detected!');
+            sendDebug('🛫 Boarding complete - starting burst...');
+            startBurstPolling();
         }
+    }
+});
 
-        async function autoRun() {
-            const key = localStorage.getItem(KEY_STORAGE);
-            const vrpId = localStorage.getItem(VRP_STORAGE);
-            if (key && vrpId) {
-                vrpInput.value = vrpId;
-                keyInput.value = key;
-                await fetchAndSetWaypoint(key, vrpId, false);
-                // Start position check
-                if (positionCheckTimer) clearInterval(positionCheckTimer);
-                positionCheckTimer = setInterval(checkPosition, POSITION_CHECK_INTERVAL);
-            } else {
-                keyBox.style.display = 'block';
-            }
-        }
-
-        // EVENTS
-        window.addEventListener('keydown', e => {
-            if (e.key === 'Escape') {
-                window.parent.postMessage({ type: 'pin' }, '*');
-                e.preventDefault();
-            }
-        });
-
-        [keyInput, vrpInput].forEach(input => {
-            input.addEventListener('keydown', e => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    trySaveAndRun();
-                }
-            });
-        });
-
-        refreshBtn.addEventListener('click', () => {
-            const key = localStorage.getItem(KEY_STORAGE);
-            const vrpId = localStorage.getItem(VRP_STORAGE);
-            if (key && vrpId) fetchAndSetWaypoint(key, vrpId, false);
-        });
-
-        autoRun();
-    </script>
+autoRun();
+</script>
 </body>
 </html>
