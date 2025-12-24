@@ -53,7 +53,7 @@ const MAX_BURST_CHECKS = 20;
 let burstTimer = null;
 let burstCount = 0;
 let isInBurstMode = false;
-let lastNotification = '';
+let lastNotification = null; // null instead of empty string to catch first notification
 let lastX = null;
 let lastY = null;
 let lastZ = null;
@@ -271,18 +271,17 @@ refreshBtn.addEventListener('click', () => {
 
 // Message listener for game data
 window.addEventListener("message", (event) => {
-    console.log("Received message:", event.data);
+    // Don't log every message to avoid spam
     
     // Handle both formats: event.data.data and event.data
     const msg = event.data.data || event.data || {};
     
     if (msg.notification) {
-        console.log('Notification in data:', msg.notification);
-        
+        // Only process if notification actually changed
         if (msg.notification !== lastNotification) {
             lastNotification = msg.notification;
             console.log('NEW NOTIFICATION:', msg.notification);
-            sendDebug("NOTIFICATION: " + msg.notification);
+            sendDebug("NEW: " + msg.notification);
             
             const lower = msg.notification.toLowerCase();
             if (lower.includes('boarding complete') && lower.includes('push back')) {
@@ -291,6 +290,7 @@ window.addEventListener("message", (event) => {
                 startBurstPolling();
             }
         }
+        // If same notification, silently ignore (no log spam)
     }
 });
 
