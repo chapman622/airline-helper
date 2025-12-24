@@ -15,7 +15,12 @@ button:hover { background:#0056b3; }
 .error { color:#ff5555; }
 .success { color:#55ff99; }
 .hint { margin-top:20px; font-size:13px; color:#aaa; }
-#refreshButton { position:fixed; bottom:100px; left:20px; width:50px; height:50px; cursor:move; z-index:9999; opacity:0.7; transition:opacity 0.3s; background:#28a745; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:24px; border:2px solid #1e7e34; user-select:none; }
+#refreshButton { 
+  position:fixed; bottom:100px; left:20px; width:50px; height:50px; cursor:move; z-index:9999; 
+  opacity:0.7; transition:opacity 0.3s; background:#28a745; border-radius:50%; display:flex; 
+  align-items:center; justify-content:center; font-size:24px; border:2px solid #1e7e34; 
+  user-select:none; 
+}
 #refreshButton:hover { opacity:1; transform:scale(1.1); transition:all 0.2s; }
 #refreshButton.dragging { cursor:grabbing; opacity:1; }
 </style>
@@ -45,6 +50,9 @@ button:hover { background:#0056b3; }
 </script>
 
 <script>
+// ================================
+// CONFIG & GLOBALS
+// ================================
 const API_URL = 'https://tycoon-2epova.users.cfx.re/status/airline.json';
 const KEY_STORAGE = 'tycoonAutoApiKey';
 const VRP_STORAGE = 'tycoonVrpId';
@@ -71,15 +79,19 @@ const keyInput = document.getElementById('apiKey');
 const vrpInput = document.getElementById('vrpId');
 const refreshBtn = document.getElementById('refreshButton');
 
-// Check if job is airline pilot (using display name)
+// ================================
+// JOB DETECTION (using display name)
+// ================================
 function checkJob(job, jobName, jobTitle) {
     console.log('Job check - received:', { job, jobName, jobTitle });
     
-    const nameLower = (jobName || jobTitle || '').toLowerCase();
+    const nameLower = (jobName || jobTitle || job || '').toLowerCase();
     const wasAirline = isAirlinePilot;
     
-    // Match "Airline Pilot" display name
-    isAirlinePilot = nameLower.includes('airline pilot') || nameLower.includes('airlinepilot');
+    // Match display name "Airline Pilot" or internal "airlinepilot"
+    isAirlinePilot = nameLower.includes('airline pilot') || 
+                     nameLower.includes('airlinepilot') || 
+                     nameLower.includes('airline');
     
     console.log('Job check result - isAirlinePilot:', isAirlinePilot, 'wasAirline:', wasAirline);
     console.log('Full lower name:', nameLower);
