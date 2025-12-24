@@ -66,7 +66,26 @@ const keyInput = document.getElementById('apiKey');
 const vrpInput = document.getElementById('vrpId');
 const refreshBtn = document.getElementById('refreshButton');
 
-// Debug notification
+// Check if job is airline pilot
+function checkJob(job) {
+    const wasAirline = isAirlinePilot;
+    isAirlinePilot = (job && job.toLowerCase().includes('airline'));
+    
+    if (isAirlinePilot !== wasAirline) {
+        if (isAirlinePilot) {
+            console.log('Airline Pilot job detected - activating');
+            refreshBtn.style.display = 'flex';
+            sendDebug('Airline app activated');
+        } else {
+            console.log('Not airline pilot - deactivating');
+            refreshBtn.style.display = 'none';
+            // Stop any active burst polling
+            if (isInBurstMode) {
+                stopBurstPolling();
+            }
+        }
+    }
+}
 function sendDebug(text) {
     window.parent.postMessage({ type: "notification", text: text }, "*");
     console.log('DEBUG: ' + text);
@@ -160,6 +179,11 @@ async function fetchAndSetWaypoint(key, vrpId, isSilent = false) {
 
 // Start burst polling
 function startBurstPolling() {
+    if (!isAirlinePilot) {
+        console.log('Not airline pilot - burst cancelled');
+        return;
+    }
+    
     if (isInBurstMode) {
         console.log('Already in burst mode, ignoring');
         return;
@@ -263,7 +287,7 @@ window.addEventListener('keydown', e => {
 });
 
 refreshBtn.addEventListener('click', () => {
-    if (isDragging) return; // Don't trigger on drag end
+    if (isDragging || !isAirlinePilot) return;
     
     const key = localStorage.getItem(KEY_STORAGE);
     const vrpId = localStorage.getItem(VRP_STORAGE);
@@ -338,8 +362,15 @@ window.addEventListener("message", (event) => {
     // Handle both formats: event.data.data and event.data
     const msg = event.data.data || event.data || {};
     
+    // Check for job updates
+    if (msg.job !== undefined) {
+        checkJob(msg.job);
+    }
+    
     // Check for trigger keybind
     if (msg.trigger_airline_reset_waypoint) {
+        if (!isAirlinePilot) return;
+        
         console.log('Keybind triggered - refreshing waypoint');
         sendDebug('Keybind refresh...');
         const key = localStorage.getItem(KEY_STORAGE);
@@ -357,6 +388,8 @@ window.addEventListener("message", (event) => {
         // Only check boarding notifications - ignore everything else silently
         const lower = msg.notification.toLowerCase();
         if (lower.includes('boarding complete') && lower.includes('push back')) {
+            if (!isAirlinePilot) return;
+            
             console.log('🛫 BOARDING COMPLETE DETECTED:', msg.notification);
             sendDebug('🛫 Boarding complete - starting burst...');
             startBurstPolling();
@@ -379,6 +412,9 @@ console.log('Keybind registered: airline_reset_waypoint');
 
 // Restore button position
 restoreButtonPosition();
+
+// Hide button initially until job is confirmed
+refreshBtn.style.display = 'none';
 
 // Start the app
 autoRun();
