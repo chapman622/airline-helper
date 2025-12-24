@@ -59,7 +59,7 @@ const VRP_STORAGE = 'tycoonVrpId';
 const BTN_POS_STORAGE = 'tycoonBtnPosition';
 const BURST_INTERVAL = 3000;
 const MAX_BURST_CHECKS = 20;
-const REQUIRED_JOB = "pilot"; // Matches what the server sends for Airline Pilot
+const REQUIRED_JOB = "pilot"; // Internal job ID from your log
 
 // GLOBALS
 let burstTimer = null;
@@ -81,18 +81,18 @@ const vrpInput = document.getElementById('vrpId');
 const refreshBtn = document.getElementById('refreshButton');
 
 // ================================
-// JOB DETECTION (real-time, mirror current job)
+// REAL-TIME JOB DETECTION
+// Button visible ONLY while job is Airline Pilot
 // ================================
 function checkJob(job) {
     const jobLower = job ? job.toLowerCase() : '';
+    const shouldBeVisible = (jobLower === REQUIRED_JOB);
     
-    const shouldShow = (jobLower === REQUIRED_JOB);
-    
-    if (shouldShow !== isAirlinePilot) {
-        isAirlinePilot = shouldShow;
+    if (shouldBeVisible !== isAirlinePilot) {
+        isAirlinePilot = shouldBeVisible;
         
         if (isAirlinePilot) {
-            sendDebug('✈️ Airline Pilot job active - showing button');
+            sendDebug('Airline Pilot job active - showing button');
             refreshBtn.style.display = 'flex';
         } else {
             sendDebug('Switched to other job - hiding button');
@@ -232,7 +232,7 @@ async function trySaveAndRun() {
     if (await fetchAndSetWaypoint(key, vrpId, false)) {
         localStorage.setItem(KEY_STORAGE, key);
         localStorage.setItem(VRP_STORAGE, vrpId);
-        sendDebug('Setup complete - listening for notifications');
+        sendDebug('Setup complete');
     }
 }
 
@@ -244,7 +244,7 @@ async function autoRun() {
         vrpInput.value = vrpId;
         keyInput.value = key;
         await fetchAndSetWaypoint(key, vrpId, false);
-        sendDebug('App loaded - listening for boarding notifications');
+        sendDebug('App loaded');
     } else {
         keyBox.style.display = 'block';
     }
@@ -326,7 +326,7 @@ window.addEventListener("message", (event) => {
     const data = event.data?.data;
     if (!data || typeof data !== 'object') return;
     
-    // Real-time job check (show/hide button based on current job)
+    // Real-time job check: show/hide button based on current job
     checkJob(data.job);
     
     if (data.notification && data.notification !== lastNotification) {
@@ -336,7 +336,7 @@ window.addEventListener("message", (event) => {
         if (lower.includes('boarding complete') && lower.includes('push back approved')) {
             if (!isAirlinePilot) return;
             
-            sendDebug('🛫 BOARDING COMPLETE DETECTED - starting burst...');
+            sendDebug('🛫 BOARDING COMPLETE - starting burst...');
             startBurstPolling();
         }
     }
@@ -344,11 +344,11 @@ window.addEventListener("message", (event) => {
 
 // Request initial cached data
 window.parent.postMessage({ type: "getData" }, "*");
-sendDebug('Requested initial game data on load');
+sendDebug('Requested initial data');
 
 // Force request job ID
 window.parent.postMessage({ type: "getNamedData", keys: ["job"] }, "*");
-sendDebug('Requested job ID on load');
+sendDebug('Requested job ID');
 
 // Register keybind (optional)
 window.parent.postMessage({
@@ -356,7 +356,7 @@ window.parent.postMessage({
     trigger: "airline_reset_waypoint",
     name: "Airline: Re-set Waypoint"
 }, "*");
-sendDebug('Keybind registered: airline_reset_waypoint');
+sendDebug('Keybind registered');
 
 // Restore button position
 restoreButtonPosition();
