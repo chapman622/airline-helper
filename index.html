@@ -72,7 +72,7 @@ let isDragging = false;
 let dragOffsetX = 0;
 let dragOffsetY = 0;
 let isAirlinePilot = false;
-let jobCheckTimeout = null; // <--- For debounce
+let jobCheckTimeout = null; // For debounce
 
 const keyBox = document.getElementById('keyBox');
 const statusEl = document.getElementById('status');
@@ -83,32 +83,39 @@ const refreshBtn = document.getElementById('refreshButton');
 // ================================
 // JOB DETECTION WITH DEBOUNCE
 // ================================
-function checkJob(job, jobName, jobTitle) {
-    console.log('Job check - received:', { job, jobName, jobTitle });
+function checkJob(job, jobName, jobTitle, subJob, subJobName) {
+    console.log('Job check - received full:', { job, jobName, jobTitle, subJob, subJobName });
     
     // Clear any pending timeout
     if (jobCheckTimeout) clearTimeout(jobCheckTimeout);
     
-    // Debounce: wait 500ms for all rapid messages
+    // Debounce: wait 1 second for all rapid messages to settle
     jobCheckTimeout = setTimeout(() => {
-        const nameLower = (jobName || jobTitle || job || '').toLowerCase();
+        const allNames = [
+            job || '',
+            jobName || '',
+            jobTitle || '',
+            subJob || '',
+            subJobName || ''
+        ].join(' ').toLowerCase();
+        
         const wasAirline = isAirlinePilot;
         
-        // Match "Airline Pilot" display name or internal variants
-        isAirlinePilot = nameLower.includes('airline pilot') || 
-                         nameLower.includes('airlinepilot') || 
-                         nameLower.includes('airline');
+        // Flexible match for "Airline Pilot" display name or internal variants
+        isAirlinePilot = allNames.includes('airline pilot') || 
+                         allNames.includes('airlinepilot') || 
+                         allNames.includes('airline');
         
-        console.log('Debounced job check result - isAirlinePilot:', isAirlinePilot, 'wasAirline:', wasAirline);
-        console.log('Full lower name:', nameLower);
+        console.log('Debounced job check - all names:', allNames);
+        console.log('Result - isAirlinePilot:', isAirlinePilot, '(was:', wasAirline, ')');
         
         if (isAirlinePilot !== wasAirline) {
             if (isAirlinePilot) {
-                console.log('✈️ Airline Pilot job detected - activating');
+                console.log('✈️ Airline Pilot detected - ACTIVATING');
                 refreshBtn.style.display = 'flex';
                 sendDebug('✈️ Airline app activated');
             } else {
-                console.log('❌ Not airline pilot - deactivating');
+                console.log('❌ Not airline pilot - DEACTIVATING');
                 refreshBtn.style.display = 'none';
                 sendDebug('Airline app deactivated');
                 if (isInBurstMode) {
@@ -116,7 +123,7 @@ function checkJob(job, jobName, jobTitle) {
                 }
             }
         }
-    }, 500); // 0.5 second delay
+    }, 1000); // 1 second delay
 }
 
 function sendDebug(text) {
@@ -137,7 +144,7 @@ function setWaypoint(x, y, z) {
     sendDebug('Waypoint set: ' + x.toFixed(1) + ', ' + y.toFixed(1) + ', ' + z.toFixed(1));
 }
 
-// Fetch & update waypoint (your original logic)
+// Fetch & update waypoint
 async function fetchAndSetWaypoint(key, vrpId, isSilent = false) {
     try {
         console.log('Fetch started');
@@ -372,7 +379,7 @@ function restoreButtonPosition() {
     }
 }
 
-// Message listener (cargo-style)
+// Message listener
 window.addEventListener("message", (event) => {
     const data = event.data?.data;
     if (!data || typeof data !== 'object') return;
@@ -380,7 +387,7 @@ window.addEventListener("message", (event) => {
     console.log('Message received, keys:', Object.keys(data));
     
     // Job detection with debounce
-    checkJob(data.job, data.job_name, data.job_title);
+    checkJob(data.job, data.job_name, data.job_title, data.subjob, data.subjob_name);
     
     if (data.notification && data.notification !== lastNotification) {
         lastNotification = data.notification;
@@ -399,6 +406,10 @@ window.addEventListener("message", (event) => {
 // Request initial cached data
 window.parent.postMessage({ type: "getData" }, "*");
 console.log('Requested initial game data on load');
+
+// Force request job fields
+window.parent.postMessage({ type: "getNamedData", keys: ["job", "job_name", "job_title", "subjob", "subjob_name"] }, "*");
+console.log('Requested job fields on load');
 
 // Register keybind (optional)
 window.parent.postMessage({
