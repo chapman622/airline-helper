@@ -73,6 +73,7 @@ let dragOffsetX = 0;
 let dragOffsetY = 0;
 let isAirlinePilot = false;
 let jobCheckTimeout = null; // For debounce
+let hasEverActivated = false; // Fallback to prevent permanent deactivation
 
 const keyBox = document.getElementById('keyBox');
 const statusEl = document.getElementById('status');
@@ -81,7 +82,7 @@ const vrpInput = document.getElementById('vrpId');
 const refreshBtn = document.getElementById('refreshButton');
 
 // ================================
-// JOB DETECTION WITH DEBOUNCE
+// JOB DETECTION WITH STRONGER DEBOUNCE + FALLBACK
 // ================================
 function checkJob(job, jobName, jobTitle, subJob, subJobName) {
     console.log('Job check - received full:', { job, jobName, jobTitle, subJob, subJobName });
@@ -89,7 +90,7 @@ function checkJob(job, jobName, jobTitle, subJob, subJobName) {
     // Clear any pending timeout
     if (jobCheckTimeout) clearTimeout(jobCheckTimeout);
     
-    // Debounce: wait 1 second for all rapid messages to settle
+    // Longer debounce: wait 1.5 seconds for all rapid messages
     jobCheckTimeout = setTimeout(() => {
         const allNames = [
             job || '',
@@ -101,13 +102,19 @@ function checkJob(job, jobName, jobTitle, subJob, subJobName) {
         
         const wasAirline = isAirlinePilot;
         
-        // Flexible match for "Airline Pilot" display name or internal variants
-        isAirlinePilot = allNames.includes('airline pilot') || 
+        // Flexible match for Airline Pilot
+        const detected = allNames.includes('airline pilot') || 
                          allNames.includes('airlinepilot') || 
                          allNames.includes('airline');
         
+        // If ever detected, keep it true forever (fallback)
+        if (detected) hasEverActivated = true;
+        
+        isAirlinePilot = detected || hasEverActivated;
+        
         console.log('Debounced job check - all names:', allNames);
-        console.log('Result - isAirlinePilot:', isAirlinePilot, '(was:', wasAirline, ')');
+        console.log('Detected:', detected, 'Ever activated:', hasEverActivated);
+        console.log('Final result - isAirlinePilot:', isAirlinePilot, '(was:', wasAirline, ')');
         
         if (isAirlinePilot !== wasAirline) {
             if (isAirlinePilot) {
@@ -123,7 +130,7 @@ function checkJob(job, jobName, jobTitle, subJob, subJobName) {
                 }
             }
         }
-    }, 1000); // 1 second delay
+    }, 1500); // 1.5 second delay
 }
 
 function sendDebug(text) {
@@ -144,7 +151,7 @@ function setWaypoint(x, y, z) {
     sendDebug('Waypoint set: ' + x.toFixed(1) + ', ' + y.toFixed(1) + ', ' + z.toFixed(1));
 }
 
-// Fetch & update waypoint
+// Fetch & update waypoint (unchanged)
 async function fetchAndSetWaypoint(key, vrpId, isSilent = false) {
     try {
         console.log('Fetch started');
