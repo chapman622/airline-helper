@@ -265,7 +265,10 @@ refreshBtn.addEventListener('click', () => {
     const vrpId = localStorage.getItem(VRP_STORAGE);
     if (key && vrpId) {
         console.log('Manual refresh clicked');
-        fetchAndSetWaypoint(key, vrpId, false);
+        sendDebug('Manual refresh...');
+        // Force waypoint update by clearing last coords
+        lastX = lastY = lastZ = null;
+        fetchAndSetWaypoint(key, vrpId, true);
     }
 });
 
