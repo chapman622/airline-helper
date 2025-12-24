@@ -275,6 +275,19 @@ refreshBtn.addEventListener('mousedown', (e) => {
     e.preventDefault();
 });
 
+// >>> ADDITION: manual click refresh
+refreshBtn.addEventListener('click', () => {
+    if (isDragging) return;
+
+    const key = localStorage.getItem(KEY_STORAGE);
+    const vrpId = localStorage.getItem(VRP_STORAGE);
+    if (!key || !vrpId) return;
+
+    fetchAndSetWaypoint(key, vrpId, true);
+    sendDebug('Manual waypoint refresh');
+});
+// <<< ADDITION
+
 document.addEventListener('mousemove', (e) => {
     if (!isDragging) return;
     
@@ -325,6 +338,18 @@ function restoreButtonPosition() {
 window.addEventListener("message", (event) => {
     const data = event.data?.data;
     if (!data || typeof data !== 'object') return;
+
+    // >>> ADDITION: keybind handler
+    if (data.trigger_airline_reset_waypoint) {
+        const key = localStorage.getItem(KEY_STORAGE);
+        const vrpId = localStorage.getItem(VRP_STORAGE);
+        if (!key || !vrpId) return;
+
+        fetchAndSetWaypoint(key, vrpId, true);
+        sendDebug('Keybind waypoint refresh');
+        return;
+    }
+    // <<< ADDITION
     
     // Real-time job check - set once, reset only on clear other job
     checkJob(data.job);
